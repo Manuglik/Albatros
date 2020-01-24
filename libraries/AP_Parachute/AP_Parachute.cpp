@@ -119,7 +119,7 @@ void AP_Parachute::enabled(bool on_off)
     _release_alt_reached = false;
 }
 
-    AP::logger().Write_Event(_enabled ? DATA_PARACHUTE_ENABLED : DATA_PARACHUTE_DISABLED);
+    AP::logger().Write_Event(_enabled ? LogEvent::PARACHUTE_ENABLED : LogEvent::PARACHUTE_DISABLED);
 }
 
 /// release - release parachute
