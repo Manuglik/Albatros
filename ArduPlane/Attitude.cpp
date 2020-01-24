@@ -362,6 +362,11 @@ void Plane::stabilize_acro(float speed_scaler)
  */
 void Plane::stabilize()
 {
+        if (parachute_enabled) {
+        SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, parachute.pitch());
+        return;
+    }
+
     if (control_mode == &mode_manual) {
         // reset steering controls
         steer_state.locked_course = false;
@@ -422,7 +427,7 @@ void Plane::stabilize()
       see if we should zero the attitude controller integrators. 
      */
     if (get_throttle_input() == 0 &&
-        fabsf(relative_altitude) < 5.0f && 
+        fabsf(relative_altitude) < 5.0f &&
         fabsf(barometer.get_climb_rate()) < 0.5f &&
         gps.ground_speed() < 3) {
         // we are low, with no climb rate, and zero throttle, and very
@@ -434,7 +439,7 @@ void Plane::stabilize()
 
         // if moving very slowly also zero the steering integrator
         if (gps.ground_speed() < 1) {
-            steerController.reset_I();            
+            steerController.reset_I();
         }
     }
 }
