@@ -1,6 +1,7 @@
 #include "Plane.h"
 
 
+
 /* 
    call parachute library update
 */
@@ -11,7 +12,7 @@ void Plane::parachute_check()
     if (parachute.released()) {
         if (parachute_enabled == true) {
             gcs().send_text(MAV_SEVERITY_CRITICAL,"Parachute: Released");
-            set_mode((enum FlightMode)MANUAL, MODE_REASON_GCS_COMMAND);
+            set_mode(mode_manual, MODE_REASON_GCS_COMMAND);
             parachute_enabled = false;
         }
     }
@@ -42,7 +43,7 @@ void Plane::parachute_check()
 void Plane::parachute_release()
 {
     disarm_motors();
-    set_mode((enum FlightMode)STABILIZE, MODE_REASON_GCS_COMMAND);
+    set_mode(mode_stabilize, MODE_REASON_GCS_COMMAND);
     parachute_enabled = true;
     if (parachute.release_in_progress()) {
         return;
