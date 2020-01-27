@@ -20,7 +20,7 @@
 
 #define AP_PARACHUTE_ALT_MIN_DEFAULT            10     // default min altitude the vehicle should have before parachute is released
 
-#define AP_PARACHUTE_CRITICAL_SINK_DEFAULT      0      // default critical sink speed in m/s to trigger emergency parachute
+#define AP_PARACHUTE_CRITICAL_SINK_DEFAULT      4      // default critical sink speed in m/s to trigger emergency parachute
 
 /// @class	AP_Parachute
 /// @brief	Class managing the release of a parachute
