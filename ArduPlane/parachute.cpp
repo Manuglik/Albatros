@@ -42,7 +42,7 @@ void Plane::parachute_check()
 */
 void Plane::parachute_release()
 {
-    disarm_motors();
+    arming.disarm();
     set_mode(mode_stabilize, MODE_REASON_GCS_COMMAND);
     parachute_enabled = true;
     if (parachute.release_in_progress()) {
