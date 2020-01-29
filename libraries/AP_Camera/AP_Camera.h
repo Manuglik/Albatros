@@ -34,6 +34,7 @@ public:
     AP_Camera(AP_Relay *obj_relay, uint32_t _log_camera_bit, const struct Location &_loc, const AP_AHRS &_ahrs)
         : log_camera_bit(_log_camera_bit)
         , current_loc(_loc)
+        , ahrs(_ahrs)
     {
         AP_Param::setup_object_defaults(this, var_info);
         _apm_relay = obj_relay;
