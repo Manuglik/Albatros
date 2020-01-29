@@ -10,6 +10,7 @@
 #include <AP_GPS/AP_GPS.h>
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Mission/AP_Mission.h>
+#include <mavlink_types.h>
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4
 #include <drivers/drv_hrt.h>
 #endif
@@ -46,7 +47,7 @@ public:
 
 
     // MAVLink methods
-    void            control_msg(const mavlink_message_t* msg);
+    void            control_msg(const mavlink_message_t msg);
     void            send_feedback(mavlink_channel_t chan);
 
     // Command processing
