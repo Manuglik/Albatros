@@ -11,6 +11,18 @@
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
   #define RELAY1_PIN_DEFAULT 13
 
+#elif CONFIG_HAL_BOARD == HAL_BOARD_PX4
+  #ifdef CONFIG_ARCH_BOARD_PX4FMU_V1
+    #define RELAY1_PIN_DEFAULT 111
+
+  #elif !defined(CONFIG_ARCH_BOARD_PX4FMU_V4)
+    #define RELAY1_PIN_DEFAULT 54
+    #define RELAY2_PIN_DEFAULT 55
+  #endif
+
+#elif CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
+  #define RELAY1_PIN_DEFAULT 33
+
 #elif CONFIG_HAL_BOARD == HAL_BOARD_LINUX
   #if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BLUE
     #define RELAY1_PIN_DEFAULT 57
@@ -34,14 +46,6 @@
 
 #ifndef RELAY4_PIN_DEFAULT
   #define RELAY4_PIN_DEFAULT -1
-#endif
-
-#ifndef RELAY5_PIN_DEFAULT
-  #define RELAY5_PIN_DEFAULT -1
-#endif
-
-#ifndef RELAY6_PIN_DEFAULT
-  #define RELAY6_PIN_DEFAULT -1
 #endif
 
 
@@ -81,41 +85,18 @@ const AP_Param::GroupInfo AP_Relay::var_info[] = {
     // @Values: 0:Off,1:On,2:NoChange
     AP_GROUPINFO("DEFAULT",  4, AP_Relay, _default, 0),
 
-    // @Param: PIN5
-    // @DisplayName: Fifth Relay Pin
-    // @Description: Digital pin number for 5th relay control.
-    // @User: Standard
-    // @Values: -1:Disabled,49:BB Blue GP0 pin 4,50:AUXOUT1,51:AUXOUT2,52:AUXOUT3,53:AUXOUT4,54:AUXOUT5,55:AUXOUT6,57:BB Blue GP0 pin 3,113:BB Blue GP0 pin 6,116:BB Blue GP0 pin 5
-    AP_GROUPINFO("PIN5",  5, AP_Relay, _pin[4], RELAY5_PIN_DEFAULT),
-
-    // @Param: PIN6
-    // @DisplayName: Sixth Relay Pin
-    // @Description: Digital pin number for 6th relay control.
-    // @User: Standard
-    // @Values: -1:Disabled,49:BB Blue GP0 pin 4,50:AUXOUT1,51:AUXOUT2,52:AUXOUT3,53:AUXOUT4,54:AUXOUT5,55:AUXOUT6,57:BB Blue GP0 pin 3,113:BB Blue GP0 pin 6,116:BB Blue GP0 pin 5
-    AP_GROUPINFO("PIN6",  6, AP_Relay, _pin[5], RELAY6_PIN_DEFAULT),
-
     AP_GROUPEND
 };
 
-AP_Relay *AP_Relay::singleton;
 
 extern const AP_HAL::HAL& hal;
 
 AP_Relay::AP_Relay(void)
 {
     AP_Param::setup_object_defaults(this, var_info);
-
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-    if (singleton != nullptr) {
-        AP_HAL::panic("AP_Relay must be singleton");
-    }
-#endif
-    singleton = this;
 }
 
-
-void AP_Relay::init() 
+void AP_Relay::init()
 {
     for (uint8_t i=0; i<AP_RELAY_NUM_RELAYS; i++) {
         if (_pin[i].get() != -1) {
@@ -160,13 +141,4 @@ void AP_Relay::toggle(uint8_t relay)
         else
             on(relay);
     }
-}
-
-namespace AP {
-
-AP_Relay *relay()
-{
-    return AP_Relay::get_singleton();
-}
-
 }
