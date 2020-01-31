@@ -60,6 +60,7 @@ void Plane::parachute_release()
 //#if LANDING_GEAR_ENABLED == ENABLED
     // deploy landing gear
     //g2.landing_gear.set_position(AP_LandingGear::LandingGear_Deploy);
+#endif
 }
 
 /*
@@ -83,5 +84,4 @@ bool Plane::parachute_manual_release()
 //#endif
     return true;    
 }
-
 #endif
