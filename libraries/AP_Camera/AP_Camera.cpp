@@ -422,7 +422,6 @@ void AP_Camera::log_picture()
         logger->Write_Camera(current_loc);
 } else {
         logger->Write_Trigger(current_loc);
-        }
     }
 }
 
