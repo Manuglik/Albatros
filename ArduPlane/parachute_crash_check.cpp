@@ -11,11 +11,10 @@
 #define PARACHUTE_CHECK_ANGLE_DEVIATION_ROLL   5500    // критический угол 55 градусов крена от нулевого значения
 
 // emergency_parachute_check - выключает мотор и активирует парашют при детектировании потери управления
-// АП определяет себя как "потерявший управление" при превышении углов
+// АП определяет себя как "потерявший управление" при превышении критических углов
 void Plane::emergency_parachute_check()
 {
-        static int32_t baro_alt_start;
-
+    
     // немедленно выходим если парашют выключен
     if (!parachute.enabled()) {
         return;
@@ -25,30 +24,29 @@ void Plane::emergency_parachute_check()
     parachute.update();
 
     // Немедленно выходим если двигатель выключен
-    if (!motors->armed()) {
+    if (AP_Arming=false {
        return;
     }
-
-    // Удостоверяемся что находимся в полете
+        // Удостоверяемся что находимся в полете
     // не готово
     if (_is_flying=1 {
         return;
     }
 
-    // Удостоверяемся что находимся над минимальной высотой раскрытия 2 метра
-    // Не готово
-    if (current_loc.alt < (2) {
+    // проверяем высоту включения двигателя
+   float baro_alt = barometer.get_altitude();
+    // Ниже 2 метров не включаем проверку потери управления
+    const float blimit = 2;    
+    if (baro_alt < auto_state.baro_takeoff_alt+blimit) {
         return;
-    }
+    } 
 
     // Проверяем вышли ли мы за пределы критических углов
-     if (ahrs.pitch <= PARACHUTE_CHECK_ANGLE_DEVIATION_PITCH) 
+    if (ahrs.pitch <= PARACHUTE_CHECK_ANGLE_DEVIATION_PITCH) 
     if (ahrs.roll <= PARACHUTE_CHECK_ANGLE_DEVIATION_ROLL)
     {
         return;
     }
-
-
 
 // emergency_parachute_release - выключение двигателя, выпуск парашюта и отправка уведомления оператору
 void Plane::emergency_parachute_release()
@@ -56,36 +54,21 @@ void Plane::emergency_parachute_release()
     // выключаем двигатель
     arming.disarm();
 
-    // release parachute
+    // выпускаем парашют и отправляем сообщение в наземную станцию
     parachute.release();
      gcs().send_text(MAV_SEVERITY_INFO,"Emergency parachute: RELEASED");
         AP::logger().Write_Error(LogErrorSubsystem::PARACHUTES, LogErrorCode::PARACHUTE_RELEASED);
 
 }
 
-    // exit immediately if parachute is not enabled
+    // немедленно выходим если парашют не включен
     if (!parachute.enabled()) {
         return;
     }
 
-    // do not release if vehicle is landed
-    // do not release if we are landed or below the minimum altitude above home
-    if (ap.land_complete) {
-        // warn user of reason for failure
-        gcs().send_text(MAV_SEVERITY_INFO,"Parachute: Landed");
-        AP::logger().Write_Error(LogErrorSubsystem::PARACHUTES, LogErrorCode::PARACHUTE_LANDED);
-        return;
     }
 
-    // do not release if we are landed or below the minimum altitude above home
-    if ((parachute.alt_min() != 0 && (current_loc.alt < (int32_t)parachute.alt_min() * 100))) {
-        // warn user of reason for failure
-        gcs().send_text(MAV_SEVERITY_ALERT,"Parachute: Too low");
-        AP::logger().Write_Error(LogErrorSubsystem::PARACHUTES, LogErrorCode::PARACHUTE_TOO_LOW);
-        return;
-    }
-
-    // if we get this far release parachute
+    // если дошли досюда- выпускаем парашют
     parachute_release();
 }
 
