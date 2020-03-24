@@ -1053,6 +1053,7 @@ private:
     void notify_mode(const Mode& mode);
     void log_init();
     void parachute_check();
+    void emergency_parachute_check();
 #if PARACHUTE == ENABLED
     void do_parachute(const AP_Mission::Mission_Command& cmd);
     void parachute_release();
