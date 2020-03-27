@@ -154,7 +154,6 @@ enum class LogErrorCode : uint8_t {
     PARACHUTE_TOO_LOW = 2,
     PARACHUTE_LANDED = 3,
     PARACHUTE_RELEASED = 4,
-    PARACHUTE_EMERGENCY_RELEASED = 5,
 // EKF check definitions
     EKFCHECK_BAD_VARIANCE = 2,
     EKFCHECK_VARIANCE_CLEARED = 0,
