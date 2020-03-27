@@ -153,7 +153,6 @@ enum class LogErrorCode : uint8_t {
 // parachute failed to deploy because of low altitude or landed
     PARACHUTE_TOO_LOW = 2,
     PARACHUTE_LANDED = 3,
-    PARACHUTE_RELEASED = 4,
 // EKF check definitions
     EKFCHECK_BAD_VARIANCE = 2,
     EKFCHECK_VARIANCE_CLEARED = 0,
