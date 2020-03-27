@@ -22,8 +22,20 @@ void Plane::parachute_check()
         parachute.auto_release_alt() > relative_altitude) {
         parachute_release();
     }
-    
-   if (parachute.auto_enabled()) {
+
+// check deviation angles 
+float baro_alt = barometer.get_altitude();
+const float blimit = 2;
+    if (parachute.auto_enabled() &&
+        arming.is_armed() &&
+        is_flying() &&
+    baro_alt > auto_state.baro_takeoff_alt + blimit;
+        if (abs(ahrs.pitch_sensor) <= PARACHUTE_CHECK_ANGLE_DEVIATION_PITCH)
+        if (abs(ahrs.roll_sensor) <= PARACHUTE_CHECK_ANGLE_DEVIATION_ROLL) {
+    parachute_release();
+    }
+
+    if (parachute.auto_enabled()) {
         static bool chute_auto_ready = false;
         bool alt_reached = parachute.update_alt(relative_altitude);
         if (alt_reached && chute_auto_ready == false) {
