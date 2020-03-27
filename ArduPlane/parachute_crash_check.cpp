@@ -16,26 +16,26 @@ void Plane::emergency_parachute_check()
     parachute.update();
 
 // return immediately if disarmed
-//    if (!arming.is_armed() {
-//        return;
-//    }
+    if (!arming.is_armed() {
+        return;
+    }
 
 // ensure we are in flight
-//    if (!is_flying()) {
-//        return;
-//    }
+    if (!is_flying()) {
+        return;
+    }
 
 // check takeoff altiude
-//    float baro_alt = barometer.get_altitude();
+    float baro_alt = barometer.get_altitude();
 // return immediately if is below 2m
-//    const float blimit = 2;    
-//    if (baro_alt < auto_state.baro_takeoff_alt+blimit) {
-//        return;
+    const float blimit = 2;    
+    if (baro_alt < auto_state.baro_takeoff_alt+blimit) {
+        return;
     }
    
 // check for angle error over critical degrees
-    if (labs(ahrs.pitch_sensor) <= PARACHUTE_CHECK_ANGLE_DEVIATION_PITCH)) 
-    if (labs(ahrs.roll_sensor) <= PARACHUTE_CHECK_ANGLE_DEVIATION_ROLL)) {
+    if (abs(ahrs.pitch) <= PARACHUTE_CHECK_ANGLE_DEVIATION_PITCH)) 
+    if (abs(ahrs.roll) <= PARACHUTE_CHECK_ANGLE_DEVIATION_ROLL)) {
         return;
     }
 
