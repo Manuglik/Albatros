@@ -33,7 +33,9 @@ is_flying() &&
 (baro_alt > auto_state.baro_takeoff_alt + blimit)&& (
 (abs(ahrs.pitch_sensor) >= PARACHUTE_CHECK_ANGLE_DEVIATION_PITCH) ||
 (abs(ahrs.roll_sensor) >= PARACHUTE_CHECK_ANGLE_DEVIATION_ROLL) ))
-
+{
+parachute_release();
+}
     if (parachute.auto_enabled()) {
         static bool chute_auto_ready = false;
         bool alt_reached = parachute.update_alt(relative_altitude);
