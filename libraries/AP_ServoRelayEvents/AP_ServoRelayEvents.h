@@ -11,8 +11,9 @@
 
 class AP_ServoRelayEvents {
 public:
-    AP_ServoRelayEvents()
-        : type(EVENT_TYPE_RELAY)
+    AP_ServoRelayEvents(AP_Relay &_relay)
+        : relay(_relay)
+        , type(EVENT_TYPE_RELAY)
     {
         _singleton = this;
     }
@@ -26,6 +27,9 @@ public:
         return _singleton;
     }
 
+    // set allowed servo channel mask
+    void set_channel_mask(uint16_t _mask) { mask = _mask; }
+
     bool do_set_servo(uint8_t channel, uint16_t pwm);
     bool do_set_relay(uint8_t relay_num, uint8_t state);
     bool do_repeat_servo(uint8_t channel, uint16_t servo_value, int16_t repeat, uint16_t delay_time_ms);
@@ -35,6 +39,9 @@ public:
 private:
 
     static AP_ServoRelayEvents *_singleton;
+
+    AP_Relay &relay;
+    uint16_t mask;
 
     // event control state
     enum event_type { 

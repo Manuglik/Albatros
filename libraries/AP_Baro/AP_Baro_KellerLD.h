@@ -38,7 +38,7 @@
 class AP_Baro_KellerLD : public AP_Baro_Backend
 {
 public:
-    void update() override;
+    void update();
 
     static AP_Baro_Backend *probe(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev);
 

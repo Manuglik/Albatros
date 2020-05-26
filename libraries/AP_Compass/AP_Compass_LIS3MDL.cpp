@@ -48,14 +48,15 @@
 
 extern const AP_HAL::HAL &hal;
 
-AP_Compass_Backend *AP_Compass_LIS3MDL::probe(AP_HAL::OwnPtr<AP_HAL::Device> dev,
+AP_Compass_Backend *AP_Compass_LIS3MDL::probe(Compass &compass,
+                                              AP_HAL::OwnPtr<AP_HAL::Device> dev,
                                               bool force_external,
                                               enum Rotation rotation)
 {
     if (!dev) {
         return nullptr;
     }
-    AP_Compass_LIS3MDL *sensor = new AP_Compass_LIS3MDL(std::move(dev), force_external, rotation);
+    AP_Compass_LIS3MDL *sensor = new AP_Compass_LIS3MDL(compass, std::move(dev), force_external, rotation);
     if (!sensor || !sensor->init()) {
         delete sensor;
         return nullptr;
@@ -64,10 +65,12 @@ AP_Compass_Backend *AP_Compass_LIS3MDL::probe(AP_HAL::OwnPtr<AP_HAL::Device> dev
     return sensor;
 }
 
-AP_Compass_LIS3MDL::AP_Compass_LIS3MDL(AP_HAL::OwnPtr<AP_HAL::Device> _dev,
+AP_Compass_LIS3MDL::AP_Compass_LIS3MDL(Compass &compass,
+                                       AP_HAL::OwnPtr<AP_HAL::Device> _dev,
                                        bool _force_external,
                                        enum Rotation _rotation)
-    : dev(std::move(_dev))
+    : AP_Compass_Backend(compass)
+    , dev(std::move(_dev))
     , force_external(_force_external)
     , rotation(_rotation)
 {
@@ -75,7 +78,9 @@ AP_Compass_LIS3MDL::AP_Compass_LIS3MDL(AP_HAL::OwnPtr<AP_HAL::Device> _dev,
 
 bool AP_Compass_LIS3MDL::init()
 {
-    dev->get_semaphore()->take_blocking();
+    if (!dev->get_semaphore()->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        return false;
+    }
 
     if (dev->bus_type() == AP_HAL::Device::BUS_TYPE_SPI) {
         dev->set_read_flag(0xC0);
@@ -105,11 +110,7 @@ bool AP_Compass_LIS3MDL::init()
     dev->get_semaphore()->give();
 
     /* register the compass instance in the frontend */
-    dev->set_device_type(DEVTYPE_LIS3MDL);
-    if (!register_compass(dev->get_bus_id(), compass_instance)) {
-        return false;
-    }
-    set_dev_id(compass_instance, dev->get_bus_id());
+    compass_instance = register_compass();
 
     printf("Found a LIS3MDL on 0x%x as compass %u\n", dev->get_bus_id(), compass_instance);
     
@@ -119,6 +120,9 @@ bool AP_Compass_LIS3MDL::init()
         set_external(compass_instance, true);
     }
     
+    dev->set_device_type(DEVTYPE_LIS3MDL);
+    set_dev_id(compass_instance, dev->get_bus_id());
+
     // call timer() at 80Hz
     dev->register_periodic_callback(1000000U/80U,
                                     FUNCTOR_BIND_MEMBER(&AP_Compass_LIS3MDL::timer, void));
@@ -156,7 +160,20 @@ void AP_Compass_LIS3MDL::timer()
 
     field(data.magx * range_scale, data.magy * range_scale, data.magz * range_scale);
 
-    accumulate_sample(field, compass_instance);
+    /* rotate raw_field from sensor frame to body frame */
+    rotate_field(field, compass_instance);
+
+    /* publish raw_field (uncorrected point sample) for calibration use */
+    publish_raw_field(field, compass_instance);
+
+    /* correct raw_field for known errors */
+    correct_field(field, compass_instance);
+
+    if (_sem->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        accum += field;
+        accum_count++;
+        _sem->give();
+    }
 
 check_registers:
     dev->check_next_register();
@@ -164,5 +181,34 @@ check_registers:
 
 void AP_Compass_LIS3MDL::read()
 {
-    drain_accumulated_samples(compass_instance);
+    if (!_sem->take_nonblocking()) {
+        return;
+    }
+    if (accum_count == 0) {
+        _sem->give();
+        return;
+    }
+
+#if 0
+    // debugging code for sample rate
+    static uint32_t lastt;
+    static uint32_t total;
+    total += accum_count;
+    uint32_t now = AP_HAL::micros();
+    float dt = (now - lastt) * 1.0e-6;
+    if (dt > 1) {
+        printf("%u samples\n", total);
+        lastt = now;
+        total = 0;
+    }
+#endif
+    
+    accum /= accum_count;
+
+    publish_filtered_field(accum, compass_instance);
+
+    accum.zero();
+    accum_count = 0;
+    
+    _sem->give();
 }

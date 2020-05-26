@@ -23,38 +23,26 @@
 #include "SRV_Channel.h"
 
 #if HAL_WITH_UAVCAN
-  #include <AP_BoardConfig/AP_BoardConfig_CAN.h>
-  #include <AP_UAVCAN/AP_UAVCAN.h>
-
-  // To be replaced with macro saying if KDECAN library is included
-  #if APM_BUILD_TYPE(APM_BUILD_ArduCopter) || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
-    #include <AP_KDECAN/AP_KDECAN.h>
-  #endif
-  #include <AP_ToshibaCAN/AP_ToshibaCAN.h>
-  #include <AP_PiccoloCAN/AP_PiccoloCAN.h>
+#include <AP_UAVCAN/AP_UAVCAN.h>
+#include <AP_BoardConfig/AP_BoardConfig_CAN.h>
 #endif
 
 extern const AP_HAL::HAL& hal;
 
 SRV_Channel *SRV_Channels::channels;
-SRV_Channels *SRV_Channels::_singleton;
+SRV_Channels *SRV_Channels::instance;
 AP_Volz_Protocol *SRV_Channels::volz_ptr;
 AP_SBusOut *SRV_Channels::sbus_ptr;
-AP_RobotisServo *SRV_Channels::robotis_ptr;
-uint16_t SRV_Channels::override_counter[NUM_SERVO_CHANNELS];
 
 #if HAL_SUPPORT_RCOUT_SERIAL
 AP_BLHeli *SRV_Channels::blheli_ptr;
 #endif
 
 uint16_t SRV_Channels::disabled_mask;
-uint16_t SRV_Channels::digital_mask;
-uint16_t SRV_Channels::reversible_mask;
 
 bool SRV_Channels::disabled_passthrough;
 bool SRV_Channels::initialised;
-bool SRV_Channels::emergency_stop;
-Bitmask<SRV_Channel::k_nr_aux_servo_functions> SRV_Channels::function_mask;
+Bitmask SRV_Channels::function_mask{SRV_Channel::k_nr_aux_servo_functions};
 SRV_Channels::srv_function SRV_Channels::functions[SRV_Channel::k_nr_aux_servo_functions];
 
 const AP_Param::GroupInfo SRV_Channels::var_info[] = {
@@ -124,7 +112,7 @@ const AP_Param::GroupInfo SRV_Channels::var_info[] = {
 
     // @Param: _AUTO_TRIM
     // @DisplayName: Automatic servo trim
-    // @Description: This enables automatic servo trim in flight. Servos will be trimed in stabilized flight modes when the aircraft is close to level. Changes to servo trim will be saved every 10 seconds and will persist between flights. The automatic trim won't go more than 20% away from a centered trim.
+    // @Description: This enables automatic servo trim in flight. Servos will be trimed in stabilized flight modes when the aircraft is close to level. Changes to servo trim will be saved every 10 seconds and will persist between flights.
     // @Values: 0:Disable,1:Enable
     // @User: Advanced
     AP_GROUPINFO_FRAME("_AUTO_TRIM",  17, SRV_Channels, auto_trim, 0, AP_PARAM_FRAME_PLANE),
@@ -150,11 +138,7 @@ const AP_Param::GroupInfo SRV_Channels::var_info[] = {
     // @Path: ../AP_BLHeli/AP_BLHeli.cpp
     AP_SUBGROUPINFO(blheli, "_BLH_",  21, SRV_Channels, AP_BLHeli),
 #endif
-
-    // @Group: _ROB_
-    // @Path: ../AP_RobotisServo/AP_RobotisServo.cpp
-    AP_SUBGROUPINFO(robotis, "_ROB_",  22, SRV_Channels, AP_RobotisServo),
-
+    
     AP_GROUPEND
 };
 
@@ -163,7 +147,7 @@ const AP_Param::GroupInfo SRV_Channels::var_info[] = {
  */
 SRV_Channels::SRV_Channels(void)
 {
-    _singleton = this;
+    instance = this;
     channels = obj_channels;
 
     // set defaults from the parameter table
@@ -176,7 +160,6 @@ SRV_Channels::SRV_Channels(void)
 
     volz_ptr = &volz;
     sbus_ptr = &sbus;
-    robotis_ptr = &robotis;
 #if HAL_SUPPORT_RCOUT_SERIAL
     blheli_ptr = &blheli;
 #endif
@@ -209,16 +192,8 @@ void SRV_Channels::setup_failsafe_trim_all_non_motors(void)
  */
 void SRV_Channels::calc_pwm(void)
 {
-    WITH_SEMAPHORE(_singleton->override_counter_sem);
-
     for (uint8_t i=0; i<NUM_SERVO_CHANNELS; i++) {
-        // check if channel has been locked out for this loop
-        // if it has, decrement the loop count for that channel
-        if (override_counter[i] == 0) {
-            channels[i].calc_pwm(functions[channels[i].function].output_scaled);
-        } else {
-            override_counter[i]--;
-        }
+        channels[i].calc_pwm(functions[channels[i].function].output_scaled);
     }
 }
 
@@ -227,22 +202,6 @@ void SRV_Channels::set_output_pwm_chan(uint8_t chan, uint16_t value)
 {
     if (chan < NUM_SERVO_CHANNELS) {
         channels[chan].set_output_pwm(value);
-    }
-}
-
-// set output value for a specific function channel as a pwm value with loop based timeout
-// timeout_ms of zero will clear override of the channel
-// minimum override is 1 MAIN_LOOP
-void SRV_Channels::set_output_pwm_chan_timeout(uint8_t chan, uint16_t value, uint16_t timeout_ms)
-{
-    WITH_SEMAPHORE(_singleton->override_counter_sem);
-
-    if (chan < NUM_SERVO_CHANNELS) {
-        const uint32_t loop_period_us = AP::scheduler().get_loop_period_us();
-        // round up so any non-zero requested value will result in at least one loop
-        const uint32_t loop_count = ((timeout_ms * 1000U) + (loop_period_us - 1U)) / loop_period_us;
-        override_counter[chan] = constrain_int32(loop_count, 0, UINT16_MAX);
-        SRV_Channels::set_output_pwm_chan(chan, value);
     }
 }
 
@@ -260,67 +219,27 @@ void SRV_Channels::cork()
 void SRV_Channels::push()
 {
     hal.rcout->push();
-
+    
     // give volz library a chance to update
     volz_ptr->update();
 
     // give sbus library a chance to update
     sbus_ptr->update();
 
-    // give robotis library a chance to update
-    robotis_ptr->update();
-    
 #if HAL_SUPPORT_RCOUT_SERIAL
     // give blheli telemetry a chance to update
     blheli_ptr->update_telemetry();
 #endif
 
 #if HAL_WITH_UAVCAN
-    // push outputs to CAN
-    uint8_t can_num_drivers = AP::can().get_num_drivers();
-    for (uint8_t i = 0; i < can_num_drivers; i++) {
-        switch (AP::can().get_protocol_type(i)) {
-            case AP_BoardConfig_CAN::Protocol_Type_UAVCAN: {
-                AP_UAVCAN *ap_uavcan = AP_UAVCAN::get_uavcan(i);
-                if (ap_uavcan == nullptr) {
-                    continue;
-                }
-                ap_uavcan->SRV_push_servos();
-                break;
-            }
-            case AP_BoardConfig_CAN::Protocol_Type_KDECAN: {
-// To be replaced with macro saying if KDECAN library is included
-#if APM_BUILD_TYPE(APM_BUILD_ArduCopter) || APM_BUILD_TYPE(APM_BUILD_ArduPlane) || APM_BUILD_TYPE(APM_BUILD_ArduSub)
-                AP_KDECAN *ap_kdecan = AP_KDECAN::get_kdecan(i);
-                if (ap_kdecan == nullptr) {
-                    continue;
-                }
-                ap_kdecan->update();
-#endif
-                break;
-            }
-            case AP_BoardConfig_CAN::Protocol_Type_ToshibaCAN: {
-                AP_ToshibaCAN *ap_tcan = AP_ToshibaCAN::get_tcan(i);
-                if (ap_tcan == nullptr) {
-                    continue;
-                }
-                ap_tcan->update();
-                break;
-            }
-#if HAL_PICCOLO_CAN_ENABLE
-            case AP_BoardConfig_CAN::Protocol_Type_PiccoloCAN: {
-                AP_PiccoloCAN *ap_pcan = AP_PiccoloCAN::get_pcan(i);
-                if (ap_pcan == nullptr) {
-                    continue;
-                }
-                ap_pcan->update();
-                break;
-            }
-#endif
-            case AP_BoardConfig_CAN::Protocol_Type_None:
-            default:
-                break;
+    // push outputs to UAVCAN
+    uint8_t can_num_ifaces = AP_BoardConfig_CAN::get_can_num_ifaces();
+    for (uint8_t i = 0; i < MAX_NUMBER_OF_CAN_DRIVERS && i < can_num_ifaces; i++) {
+        AP_UAVCAN *ap_uavcan = AP_UAVCAN::get_uavcan(i);
+        if (ap_uavcan == nullptr) {
+            continue;
         }
+        ap_uavcan->SRV_push_servos();
     }
 #endif // HAL_WITH_UAVCAN
 }

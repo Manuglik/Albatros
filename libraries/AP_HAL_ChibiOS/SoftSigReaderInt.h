@@ -22,9 +22,7 @@
 #if HAL_USE_EICU == TRUE
 
 #define INPUT_CAPTURE_FREQUENCY 1000000 //capture unit in microseconds
-#ifndef SOFTSIG_MAX_SIGNAL_TRANSITIONS
-#define SOFTSIG_MAX_SIGNAL_TRANSITIONS 128
-#endif
+#define MAX_SIGNAL_TRANSITIONS 256
 
 
 class ChibiOS::SoftSigReaderInt {
@@ -35,26 +33,22 @@ public:
     SoftSigReaderInt &operator=(const SoftSigReaderInt&) = delete;
 
     // get singleton
-    static SoftSigReaderInt *get_singleton(void)
+    static SoftSigReaderInt *get_instance(void)
     {
-        return _singleton;
+        return _instance;
     }
 
     void init(EICUDriver* icu_drv, eicuchannel_t chan);
     bool read(uint32_t &widths0, uint32_t &widths1);
-    void disable(void);
 private:
     // singleton
-    static SoftSigReaderInt *_singleton;
+    static SoftSigReaderInt *_instance;
 
     static void _irq_handler(EICUDriver *eicup, eicuchannel_t channel);
-
+    
     static eicuchannel_t get_pair_channel(eicuchannel_t channel);
-    typedef struct PACKED {
-        uint16_t w0;
-        uint16_t w1;
-    } pulse_t;
-    ObjectBuffer<pulse_t> sigbuf{SOFTSIG_MAX_SIGNAL_TRANSITIONS};
+
+    ObjectBuffer<uint16_t> sigbuf{MAX_SIGNAL_TRANSITIONS};
     EICUConfig icucfg;
     EICUChannelConfig channel_config;
     EICUChannelConfig aux_channel_config;
@@ -63,3 +57,4 @@ private:
 };
 
 #endif // HAL_USE_EICU
+

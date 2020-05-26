@@ -26,12 +26,23 @@
 
 using namespace SITL;
 
-#define USE_VISION_POSITION_ESTIMATE 1  // 1 = send VISION_POSITION_ESTIMATE messages, 0 = send VICON_POSITION_ESTIMATE
-
-
-Vicon::Vicon() :
-    SerialDevice::SerialDevice()
+Vicon::Vicon()
 {
+    int tmp[2];
+    if (pipe(tmp) == -1) {
+        AP_HAL::panic("pipe() failed");
+    }
+    fd_my_end    = tmp[1];
+    fd_their_end = tmp[0];
+
+    // close file descriptors on exec:
+    fcntl(fd_my_end, F_SETFD, FD_CLOEXEC);
+    fcntl(fd_their_end, F_SETFD, FD_CLOEXEC);
+
+    // make sure we don't screw the simulation up by blocking:
+    fcntl(fd_my_end, F_SETFL, fcntl(fd_my_end, F_GETFL, 0) | O_NONBLOCK);
+    fcntl(fd_their_end, F_SETFL, fcntl(fd_their_end, F_GETFL, 0) | O_NONBLOCK);
+
     if (!valid_channel(mavlink_ch)) {
         AP_HAL::panic("Invalid mavlink channel");
     }
@@ -83,13 +94,8 @@ void Vicon::update_vicon_position_estimate(const Location &loc,
         return;
     }
 
-    if (now_us - last_observation_usec < 70000) {
-        // create observations at 70ms intervals (matches EK2 max rate)
-        return;
-    }
-
-    // failure simulation
-    if (_sitl->vicon_fail.get() != 0) {
+    if (now_us - last_observation_usec < 10000) {
+        // create observations at 10ms
         return;
     }
 
@@ -98,61 +104,33 @@ void Vicon::update_vicon_position_estimate(const Location &loc,
     float yaw;
     attitude.to_euler(roll, pitch, yaw);
 
-    // calculate sensor offset in earth frame
-    const Vector3f& pos_offset = _sitl->vicon_pos_offset.get();
-    Matrix3f rot;
-    rot.from_euler(radians(_sitl->state.rollDeg), radians(_sitl->state.pitchDeg), radians(_sitl->state.yawDeg));
-    Vector3f pos_offset_ef = rot * pos_offset;
-
-    // add earth frame sensor offset and glitch to position
-    Vector3f pos_corrected = position + pos_offset_ef + _sitl->vicon_glitch.get();
-
-    // adjust yaw and position to account for vicon's yaw
-    const int16_t vicon_yaw_deg = _sitl->vicon_yaw.get();
-    if (vicon_yaw_deg != 0) {
-        const float vicon_yaw_rad = radians(vicon_yaw_deg);
-        yaw = wrap_PI(yaw - vicon_yaw_rad);
-        Matrix3f vicon_yaw_rot;
-        vicon_yaw_rot.from_euler(0, 0, -vicon_yaw_rad);
-        pos_corrected = vicon_yaw_rot * pos_corrected;
-    }
-
-    // add yaw error reported to vehicle
-    yaw = wrap_PI(yaw + radians(_sitl->vicon_yaw_error.get()));
-
-#if USE_VISION_POSITION_ESTIMATE
-    // use the more recent VISION_POSITION_ESTIMATE message
-    mavlink_msg_vision_position_estimate_pack_chan(
-        system_id,
-        component_id,
-        mavlink_ch,
-        &obs_msg,
-        now_us + time_offset_us,
-        pos_corrected.x,
-        pos_corrected.y,
-        pos_corrected.z,
-        roll,
-        pitch,
-        yaw,
-        NULL, 0);
-#else
     mavlink_msg_vicon_position_estimate_pack_chan(
         system_id,
         component_id,
         mavlink_ch,
         &obs_msg,
         now_us + time_offset_us,
-        pos_corrected.x,
-        pos_corrected.y,
-        pos_corrected.z,
+        position.x,
+        position.y,
+        position.z,
         roll,
         pitch,
         yaw,
         NULL);
-#endif // USE_VISION_POSITION_ESTIMATE
 
     uint32_t delay_ms = 25 + unsigned(random()) % 300;
     time_send_us = now_us + delay_ms * 1000UL;
+}
+
+bool Vicon::init_sitl_pointer()
+{
+    if (_sitl == nullptr) {
+        _sitl = AP::sitl();
+        if (_sitl == nullptr) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /*

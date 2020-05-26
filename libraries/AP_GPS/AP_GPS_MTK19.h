@@ -32,7 +32,7 @@ class AP_GPS_MTK19 : public AP_GPS_Backend {
 public:
     AP_GPS_MTK19(AP_GPS &_gps, AP_GPS::GPS_State &_state, AP_HAL::UARTDriver *_port);
 
-    bool        read(void) override;
+    bool        read(void);
 
     static bool _detect(struct MTK19_detect_state &state, uint8_t data);
 

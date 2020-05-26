@@ -18,17 +18,22 @@
 #include <AP_Math/AP_Math.h>
 #include <GCS_MAVLink/GCS_MAVLink.h>
 #include <GCS_MAVLink/GCS.h>
-#include <AP_Logger/AP_Logger.h>
+#include <DataFlash/DataFlash.h>
 #include "AP_Terrain.h"
-#include <AP_AHRS/AP_AHRS.h>
 
 #if AP_TERRAIN_AVAILABLE
 
-#include <AP_Filesystem/AP_Filesystem.h>
+#include <assert.h>
+#include <stdio.h>
+#if HAL_OS_POSIX_IO
+#include <unistd.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#endif
+#include <sys/types.h>
+#include <errno.h>
 
 extern const AP_HAL::HAL& hal;
-
-AP_Terrain *AP_Terrain::singleton;
 
 // table of user settable parameters
 const AP_Param::GroupInfo AP_Terrain::var_info[] = {
@@ -47,30 +52,18 @@ const AP_Param::GroupInfo AP_Terrain::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("SPACING",   1, AP_Terrain, grid_spacing, 100),
 
-    // @Param: OPTIONS
-    // @DisplayName: Terrain options
-    // @Description: Options to change behaviour of terrain system
-    // @Bitmask: 0:Disable Download
-    // @User: Advanced
-    AP_GROUPINFO("OPTIONS",   2, AP_Terrain, options, 0),
-    
     AP_GROUPEND
 };
 
 // constructor
-AP_Terrain::AP_Terrain(const AP_Mission &_mission) :
+AP_Terrain::AP_Terrain(AP_AHRS &_ahrs, const AP_Mission &_mission, const AP_Rally &_rally) :
+    ahrs(_ahrs),
     mission(_mission),
+    rally(_rally),
     disk_io_state(DiskIoIdle),
     fd(-1)
 {
     AP_Param::setup_object_defaults(this, var_info);
-
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-    if (singleton != nullptr) {
-        AP_HAL::panic("Terrain must be singleton");
-    }
-#endif
-    singleton = this;
 }
 
 /*
@@ -87,8 +80,6 @@ bool AP_Terrain::height_amsl(const Location &loc, float &height, bool corrected)
     if (!allocate()) {
         return false;
     }
-
-    const AP_AHRS &ahrs = AP::ahrs();
 
     // quick access for home altitude
     if (loc.lat == home_loc.lat &&
@@ -170,8 +161,6 @@ bool AP_Terrain::height_amsl(const Location &loc, float &height, bool corrected)
 */
 bool AP_Terrain::height_terrain_difference_home(float &terrain_difference, bool extrapolate)
 {
-    const AP_AHRS &ahrs = AP::ahrs();
-
     float height_home, height_loc;
     if (!height_amsl(ahrs.get_home(), height_home, false)) {
         // we don't know the height of home
@@ -219,7 +208,7 @@ bool AP_Terrain::height_above_terrain(float &terrain_altitude, bool extrapolate)
     }
 
     float relative_home_altitude;
-    AP::ahrs().get_relative_position_D_home(relative_home_altitude);
+    ahrs.get_relative_position_D_home(relative_home_altitude);
     relative_home_altitude = -relative_home_altitude;
 
     terrain_altitude = relative_home_altitude - terrain_difference;
@@ -265,7 +254,7 @@ float AP_Terrain::lookahead(float bearing, float distance, float climb_ratio)
     }
 
     Location loc;
-    if (!AP::ahrs().get_position(loc)) {
+    if (!ahrs.get_position(loc)) {
         // we don't know where we are
         return 0;
     }
@@ -280,7 +269,7 @@ float AP_Terrain::lookahead(float bearing, float distance, float climb_ratio)
 
     // check for terrain at grid spacing intervals
     while (distance > 0) {
-        loc.offset_bearing(bearing, grid_spacing);
+        location_update(loc, bearing, grid_spacing);
         climb += climb_ratio * grid_spacing;
         distance -= grid_spacing;
         float height;
@@ -303,11 +292,8 @@ float AP_Terrain::lookahead(float bearing, float distance, float climb_ratio)
  */
 void AP_Terrain::update(void)
 {
-    if (!enable) { return; }
     // just schedule any needed disk IO
     schedule_disk_io();
-
-    const AP_AHRS &ahrs = AP::ahrs();
 
     // try to ensure the home location is populated
     float height;
@@ -330,6 +316,7 @@ void AP_Terrain::update(void)
 
     // update capabilities and status
     if (allocate()) {
+        hal.util->set_capabilities(MAV_PROTOCOL_CAPABILITY_TERRAIN);
         if (!pos_valid) {
             // we don't know where we are
             system_status = TerrainStatusUnhealthy;
@@ -340,18 +327,22 @@ void AP_Terrain::update(void)
             system_status = TerrainStatusOK;
         }
     } else {
+        hal.util->clear_capabilities(MAV_PROTOCOL_CAPABILITY_TERRAIN);
         system_status = TerrainStatusDisabled;
     }
 
 }
 
-void AP_Terrain::log_terrain_data()
+/*
+  log terrain data to dataflash log
+ */
+void AP_Terrain::log_terrain_data(DataFlash_Class &dataflash)
 {
     if (!allocate()) {
         return;
     }
     Location loc;
-    if (!AP::ahrs().get_position(loc)) {
+    if (!ahrs.get_position(loc)) {
         // we don't know where we are
         return;
     }
@@ -375,7 +366,7 @@ void AP_Terrain::log_terrain_data()
         pending        : pending,
         loaded         : loaded
     };
-    AP::logger().WriteBlock(&pkt, sizeof(pkt));
+    dataflash.WriteBlock(&pkt, sizeof(pkt));
 }
 
 /*
@@ -384,7 +375,7 @@ void AP_Terrain::log_terrain_data()
  */
 bool AP_Terrain::allocate(void)
 {
-    if (enable == 0 || memory_alloc_failed) {
+    if (enable == 0) {
         return false;
     }
     if (cache != nullptr) {
@@ -392,8 +383,8 @@ bool AP_Terrain::allocate(void)
     }
     cache = (struct grid_cache *)calloc(TERRAIN_GRID_BLOCK_CACHE_SIZE, sizeof(cache[0]));
     if (cache == nullptr) {
+        enable.set(0);
         gcs().send_text(MAV_SEVERITY_CRITICAL, "Terrain: Allocation failed");
-        memory_alloc_failed = true;
         return false;
     }
     cache_size = TERRAIN_GRID_BLOCK_CACHE_SIZE;

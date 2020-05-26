@@ -4,7 +4,7 @@ namespace HALSITL {
 class UARTDriver;
 class Scheduler;
 class SITL_State;
-class Storage;
+class EEPROMStorage;
 class AnalogIn;
 class RCInput;
 class RCOutput;
@@ -14,7 +14,6 @@ class Util;
 class Semaphore;
 class GPIO;
 class DigitalSource;
-class DSP;
 class HALSITLCAN;
 class HALSITLCANDriver;
 }  // namespace HALSITL

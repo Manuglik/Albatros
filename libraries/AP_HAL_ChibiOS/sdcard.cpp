@@ -11,21 +11,21 @@
  *
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
+ * 
  */
 
 #include "SPIDevice.h"
 #include "sdcard.h"
 #include "hwdef/common/spi_hook.h"
 #include <AP_BoardConfig/AP_BoardConfig.h>
-#include <AP_Filesystem/AP_Filesystem.h>
+#include "Semaphores.h"
 
 extern const AP_HAL::HAL& hal;
 
 #ifdef USE_POSIX
 static FATFS SDC_FS; // FATFS object
 static bool sdcard_running;
-static HAL_Semaphore sem;
+static ChibiOS::Semaphore sem;
 #endif
 
 #if HAL_USE_SDC
@@ -50,15 +50,13 @@ static SPIConfig highspeed;
 bool sdcard_init()
 {
 #ifdef USE_POSIX
-    WITH_SEMAPHORE(sem);
+    sem.take(HAL_SEMAPHORE_BLOCK_FOREVER);
 
     uint8_t sd_slowdown = AP_BoardConfig::get_sdcard_slowdown();
 #if HAL_USE_SDC
 
     if (SDCD1.bouncebuffer == nullptr) {
-        // allocate 4k bouncebuffer for microSD to match size in
-        // AP_Logger
-        bouncebuffer_init(&SDCD1.bouncebuffer, 4096, true);
+        bouncebuffer_init(&SDCD1.bouncebuffer, 512);
     }
 
     if (sdcard_running) {
@@ -81,8 +79,10 @@ bool sdcard_init()
         printf("Successfully mounted SDCard (slowdown=%u)\n", (unsigned)sd_slowdown);
 
         // Create APM Directory if needed
-        AP::FS().mkdir("/APM");
+        mkdir("/APM", 0777);
+        mkdir("/APM/LOGS", 0777);
         sdcard_running = true;
+        sem.give();
         return true;
     }
 #elif HAL_USE_MMC_SPI
@@ -95,11 +95,11 @@ bool sdcard_init()
     device = AP_HAL::get_HAL().spi->get_device("sdcard");
     if (!device) {
         printf("No sdcard SPI device found\n");
-        sdcard_running = false;
+        sem.give();
         return false;
     }
     device->set_slowdown(sd_slowdown);
-
+    
     mmcObjectInit(&MMCD1);
 
     mmcconfig.spip =
@@ -126,11 +126,14 @@ bool sdcard_init()
         printf("Successfully mounted SDCard (slowdown=%u)\n", (unsigned)sd_slowdown);
 
         // Create APM Directory if needed
-        AP::FS().mkdir("/APM");
+        mkdir("/APM", 0777);
+        mkdir("/APM/LOGS", 0777);
+        sem.give();
         return true;
     }
-#endif
     sdcard_running = false;
+#endif
+    sem.give();
 #endif
     return false;
 }
@@ -159,15 +162,13 @@ void sdcard_stop(void)
 #endif
 }
 
-bool sdcard_retry(void)
+void sdcard_retry(void)
 {
 #ifdef USE_POSIX
     if (!sdcard_running) {
         sdcard_init();
     }
-    return sdcard_running;
 #endif
-    return false;
 }
 
 #if HAL_USE_MMC_SPI
@@ -226,3 +227,4 @@ void spiReceiveHook(SPIDriver *spip, size_t n, void *rxbuf)
 }
 
 #endif
+

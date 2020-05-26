@@ -25,7 +25,7 @@ class Compass;  // forward declaration
 class AP_Compass_Backend
 {
 public:
-    AP_Compass_Backend();
+    AP_Compass_Backend(Compass &compass);
 
     // we declare a virtual destructor so that drivers can
     // override with a custom destructor if need be.
@@ -33,6 +33,13 @@ public:
 
     // read sensor data
     virtual void read(void) = 0;
+
+    // accumulate a reading from the magnetometer. Optional in
+    // backends
+    virtual void accumulate(void) {};
+
+    // callback for UAVCAN messages
+    virtual void handle_mag_msg(Vector3f &mag) {};
 
     /*
       device driver IDs. These are used to fill in the devtype field
@@ -57,8 +64,6 @@ public:
         DEVTYPE_QMC5883L = 0x0D,
         DEVTYPE_MAG3110  = 0x0E,
         DEVTYPE_SITL  = 0x0F,
-        DEVTYPE_IST8308 = 0x10,
-        DEVTYPE_RM3100 = 0x11,
     };
 
 
@@ -83,12 +88,8 @@ protected:
     void publish_filtered_field(const Vector3f &mag, uint8_t instance);
     void set_last_update_usec(uint32_t last_update, uint8_t instance);
 
-    void accumulate_sample(Vector3f &field, uint8_t instance,
-                           uint32_t max_samples = 10);
-    void drain_accumulated_samples(uint8_t instance, const Vector3f *scale = NULL);
-
     // register a new compass instance with the frontend
-    bool register_compass(int32_t dev_id, uint8_t& instance) const;
+    uint8_t register_compass(void) const;
 
     // set dev_id for an instance
     void set_dev_id(uint8_t instance, uint32_t dev_id);
@@ -105,14 +106,11 @@ protected:
     // set rotation of an instance
     void set_rotation(uint8_t instance, enum Rotation rotation);
 
-    // get board orientation (for SITL)
-    enum Rotation get_board_orientation(void) const;
-    
     // access to frontend
     Compass &_compass;
 
     // semaphore for access to shared frontend data
-    HAL_Semaphore _sem;
+    AP_HAL::Semaphore *_sem;
 
     // Check that the compass field is valid by using a mean filter on the vector length
     bool field_ok(const Vector3f &field);

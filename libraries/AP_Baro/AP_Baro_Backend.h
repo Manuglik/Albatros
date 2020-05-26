@@ -17,6 +17,9 @@ public:
     // trigger them to read the sensor
     virtual void accumulate(void) {}
 
+    // callback for UAVCAN messages
+    virtual void handle_baro_msg(float pressure, float temperature) {}
+
     void backend_update(uint8_t instance);
 
     //  Check that the baro valid by using a mean filter.
@@ -30,7 +33,7 @@ protected:
     void _copy_to_frontend(uint8_t instance, float pressure, float temperature);
 
     // semaphore for access to shared frontend data
-    HAL_Semaphore _sem;
+    AP_HAL::Semaphore *_sem;    
 
     virtual void update_healthy_flag(uint8_t instance);
 

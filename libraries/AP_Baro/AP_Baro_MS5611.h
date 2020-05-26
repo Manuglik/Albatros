@@ -10,26 +10,14 @@
 #define HAL_BARO_MS5611_I2C_ADDR 0x77
 #endif
 
-#ifndef HAL_BARO_MS5611_I2C_ADDR2
-#define HAL_BARO_MS5611_I2C_ADDR2 0x76
-#endif
-
-#ifndef HAL_BARO_MS5607_I2C_ADDR
-#define HAL_BARO_MS5607_I2C_ADDR 0x77
-#endif
-
 #ifndef HAL_BARO_MS5837_I2C_ADDR
 #define HAL_BARO_MS5837_I2C_ADDR 0x76
-#endif
-
-#ifndef HAL_BARO_MS5637_I2C_ADDR
-#define HAL_BARO_MS5637_I2C_ADDR 0x76
 #endif
 
 class AP_Baro_MS56XX : public AP_Baro_Backend
 {
 public:
-    void update() override;
+    void update();
 
     enum MS56XX_TYPE {
         BARO_MS5611 = 0,
@@ -39,7 +27,7 @@ public:
     };
 
     static AP_Baro_Backend *probe(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev, enum MS56XX_TYPE ms56xx_type = BARO_MS5611);
-
+    
 private:
     /*
      * Update @accum and @count with the new sample in @val, taking into

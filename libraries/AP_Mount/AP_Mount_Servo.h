@@ -5,6 +5,7 @@
 
 #include <AP_Math/AP_Math.h>
 #include <AP_Common/AP_Common.h>
+#include <AP_GPS/AP_GPS.h>
 #include <AP_AHRS/AP_AHRS.h>
 #include <GCS_MAVLink/GCS_MAVLink.h>
 #include <SRV_Channel/SRV_Channel.h>
@@ -19,24 +20,29 @@ public:
         _roll_idx(SRV_Channel::k_none),
         _tilt_idx(SRV_Channel::k_none),
         _pan_idx(SRV_Channel::k_none),
-        _open_idx(SRV_Channel::k_none)
+        _open_idx(SRV_Channel::k_none),
+        _last_check_servo_map_ms(0)
     {
+        // init to no axis being controlled
+        _flags.roll_control = false;
+        _flags.tilt_control = false;
+        _flags.pan_control = false;
     }
 
     // init - performs any required initialisation for this instance
-    void init() override;
+    virtual void init(const AP_SerialManager& serial_manager);
 
     // update mount position - should be called periodically
-    void update() override;
+    virtual void update();
 
     // has_pan_control - returns true if this mount can control it's pan (required for multicopters)
-    bool has_pan_control() const override { return _flags.pan_control; }
+    virtual bool has_pan_control() const { return _flags.pan_control; }
 
     // set_mode - sets mount's mode
-    void set_mode(enum MAV_MOUNT_MODE mode) override;
+    virtual void set_mode(enum MAV_MOUNT_MODE mode);
 
-    // send_mount_status - called to allow mounts to send their status to GCS using the MOUNT_STATUS message
-    void send_mount_status(mavlink_channel_t chan) override;
+    // status_msg - called to allow mounts to send their status to GCS using the MOUNT_STATUS message
+    virtual void status_msg(mavlink_channel_t chan);
 
 private:
 

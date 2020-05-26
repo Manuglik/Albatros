@@ -4,12 +4,12 @@ namespace ChibiOS {
     class AnalogIn;
     class AnalogSource;
     class DigitalSource;
-    class DSP;
     class GPIO;
     class I2CBus;
     class I2CDevice;
     class I2CDeviceManager;
     class OpticalFlow;
+    class PrivateMember;
     class RCInput;
     class RCOutput;
     class Scheduler;
@@ -26,5 +26,4 @@ namespace ChibiOS {
     class SoftSigReader;
     class SoftSigReaderInt;
     class CANManager;
-    class Flash;
 }

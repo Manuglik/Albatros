@@ -21,41 +21,27 @@
 #include "AP_AHRS_View.h"
 #include <stdio.h>
 
-AP_AHRS_View::AP_AHRS_View(AP_AHRS &_ahrs, enum Rotation _rotation, float pitch_trim_deg) :
+AP_AHRS_View::AP_AHRS_View(AP_AHRS &_ahrs, enum Rotation _rotation) :
     rotation(_rotation),
     ahrs(_ahrs)
 {
     switch (rotation) {
     case ROTATION_NONE:
-        y_angle = 0;
+        rot_view.identity();
         break;
     case ROTATION_PITCH_90:
-        y_angle = 90;
+        rot_view.from_euler(0, radians(90), 0);
         break;
     case ROTATION_PITCH_270:
-        y_angle =  270;
+        rot_view.from_euler(0, radians(270), 0);
         break;
     default:
         AP_HAL::panic("Unsupported AHRS view %u\n", (unsigned)rotation);
     }
 
-    _pitch_trim_deg = pitch_trim_deg;
-    // Add pitch trim
-    rot_view.from_euler(0, radians(wrap_360(y_angle + pitch_trim_deg)), 0);
-    rot_view_T = rot_view;
-    rot_view_T.transpose();
-
     // setup initial state
     update();
 }
-
-// apply pitch trim
-void AP_AHRS_View::set_pitch_trim(float trim_deg) {
-    _pitch_trim_deg = trim_deg; 
-    rot_view.from_euler(0, radians(wrap_360(y_angle + _pitch_trim_deg)), 0);
-    rot_view_T = rot_view;
-    rot_view_T.transpose();
-};
 
 // update state
 void AP_AHRS_View::update(bool skip_ins_update)
@@ -63,9 +49,12 @@ void AP_AHRS_View::update(bool skip_ins_update)
     rot_body_to_ned = ahrs.get_rotation_body_to_ned();
     gyro = ahrs.get_gyro();
 
-    if (!is_zero(y_angle + _pitch_trim_deg)) {
-        rot_body_to_ned = rot_body_to_ned * rot_view_T;
-        gyro = rot_view * gyro;
+    if (rotation != ROTATION_NONE) {
+        Matrix3f &r = rot_body_to_ned;
+        r.transpose();
+        r = rot_view * r;
+        r.transpose();
+        gyro.rotate(rotation);
     }
 
     rot_body_to_ned.to_euler(&roll, &pitch, &yaw);

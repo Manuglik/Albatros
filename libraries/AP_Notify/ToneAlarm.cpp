@@ -26,13 +26,8 @@
 
 #include <stdio.h>
 
-#include <AP_Filesystem/AP_Filesystem.h>
-
 extern const AP_HAL::HAL& hal;
 
-// Tunes follow the syntax of the Microsoft GWBasic/QBasic PLAY
-//   statement, with some exceptions and extensions.
-// See https://firmware.ardupilot.org/Tools/ToneTester/
 const AP_ToneAlarm::Tone AP_ToneAlarm::_tones[] {
 #define AP_NOTIFY_TONE_QUIET_NEG_FEEDBACK 0
     { "MFT200L4<<<B#A#2", false },
@@ -94,8 +89,6 @@ const AP_ToneAlarm::Tone AP_ToneAlarm::_tones[] {
     { "MFT200L4<B#4A#6G#6", false },
 #define AP_NOTIFY_TONE_STARTUP 29
     { "MFT240L8O4aO5dcO4aO5dcO4aO5dcL16dcdcdcdc", false },
-#define AP_NOTIFY_TONE_NO_SDCARD 30
-    { "MNBGG", false },
 };
 
 bool AP_ToneAlarm::init()
@@ -107,6 +100,8 @@ bool AP_ToneAlarm::init()
         return false;
     }
 
+    _sem = hal.util->new_semaphore();
+
     // set initial boot states. This prevents us issuing a arming
     // warning in plane and rover on every boot
     flags.armed = AP_Notify::flags.armed;
@@ -114,19 +109,6 @@ bool AP_ToneAlarm::init()
     flags.pre_arm_check = 1;
     _cont_tone_playing = -1;
     hal.scheduler->register_timer_process(FUNCTOR_BIND(this, &AP_ToneAlarm::_timer_task, void));
-
-#if HAVE_FILESYSTEM_SUPPORT && CONFIG_HAL_BOARD != HAL_BOARD_LINUX
-    // if we don't have a SDcard then play a failure tone instead of
-    // normal startup tone. This gives the user a chance to fix it
-    // before they try to arm. We don't do this on Linux as Linux
-    // flight controllers don't usually have removable storage
-    struct stat st;
-    if (AP::FS().stat(HAL_BOARD_STORAGE_DIRECTORY, &st) != 0) {
-        play_tone(AP_NOTIFY_TONE_NO_SDCARD);
-        return true;
-    }
-#endif
-
     play_tone(AP_NOTIFY_TONE_STARTUP);
     return true;
 }
@@ -144,29 +126,32 @@ void AP_ToneAlarm::play_tone(const uint8_t tone_index)
     _tone_playing = tone_index;
     _tone_beginning_ms = tnow_ms;
 
-    play_tune(tone_requested.str);
+    play_string(tone_requested.str);
 }
 
 void AP_ToneAlarm::_timer_task()
 {
-    WITH_SEMAPHORE(_sem);
-    _mml_player.update();
+    if (_sem && _sem->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        _mml_player.update();
+        _sem->give();
+    }
 }
 
-void AP_ToneAlarm::play_tune(const char *str)
+void AP_ToneAlarm::play_string(const char *str)
 {
-    WITH_SEMAPHORE(_sem);
-
-    _mml_player.stop();
-    strncpy(_tone_buf, str, AP_NOTIFY_TONEALARM_TONE_BUF_SIZE);
-    _tone_buf[AP_NOTIFY_TONEALARM_TONE_BUF_SIZE-1] = 0;
-    _mml_player.play(_tone_buf);
+    if (_sem && _sem->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        _mml_player.stop();
+        strncpy(_tone_buf, str, AP_NOTIFY_TONEALARM_TONE_BUF_SIZE);
+        _tone_buf[AP_NOTIFY_TONEALARM_TONE_BUF_SIZE-1] = 0;
+        _mml_player.play(_tone_buf);
+        _sem->give();
+    }
 }
 
 void AP_ToneAlarm::stop_cont_tone()
 {
     if (_cont_tone_playing == _tone_playing) {
-        play_tune("");
+        play_string("");
         _tone_playing = -1;
     }
     _cont_tone_playing = -1;
@@ -299,23 +284,6 @@ void AP_ToneAlarm::update()
         }
     }
 
-    // notify the user when GCS failsafe is triggered
-    if (flags.failsafe_gcs != AP_Notify::flags.failsafe_gcs) {
-        flags.failsafe_gcs = AP_Notify::flags.failsafe_gcs;
-        if (flags.failsafe_gcs) {
-            // armed case handled by events.failsafe_mode_change
-            if (!AP_Notify::flags.armed) {
-                play_tone(AP_NOTIFY_TONE_QUIET_NEG_FEEDBACK);
-            }
-        } else {
-            if (AP_Notify::flags.armed) {
-                play_tone(AP_NOTIFY_TONE_LOUD_POS_FEEDBACK);
-            } else {
-                play_tone(AP_NOTIFY_TONE_QUIET_POS_FEEDBACK);
-            }
-        }
-    }
-
     // notify the user when pre_arm checks are passing
     if (flags.pre_arm_check != AP_Notify::flags.pre_arm_check) {
         flags.pre_arm_check = AP_Notify::flags.pre_arm_check;
@@ -415,23 +383,23 @@ void AP_ToneAlarm::update()
 /*
  *  handle a PLAY_TUNE message
  */
-void AP_ToneAlarm::handle_play_tune(const mavlink_message_t &msg)
+void AP_ToneAlarm::handle_play_tune(mavlink_message_t *msg)
 {
     // decode mavlink message
     mavlink_play_tune_t packet;
 
-    mavlink_msg_play_tune_decode(&msg, &packet);
+    mavlink_msg_play_tune_decode(msg, &packet);
 
-    WITH_SEMAPHORE(_sem);
+    if (_sem && _sem->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        _mml_player.stop();
 
-    _mml_player.stop();
-
-    strncpy(_tone_buf, packet.tune, MIN(sizeof(packet.tune), sizeof(_tone_buf)-1));
-    _tone_buf[sizeof(_tone_buf)-1] = 0;
-    uint8_t len = strlen(_tone_buf);
-    uint8_t len2 = strnlen(packet.tune2, sizeof(packet.tune2));
-    len2 = MIN((sizeof(_tone_buf)-1)-len, len2);
-    strncpy(_tone_buf+len, packet.tune2, len2);
-    _tone_buf[sizeof(_tone_buf)-1] = 0;
-    _mml_player.play(_tone_buf);
+        strncpy(_tone_buf, packet.tune, MIN(sizeof(packet.tune), sizeof(_tone_buf)-1));
+        _tone_buf[sizeof(_tone_buf)-1] = 0;
+        uint8_t len = strlen(_tone_buf);
+        uint8_t len2 = strnlen(packet.tune2, sizeof(packet.tune2));
+        len2 = MIN((sizeof(_tone_buf)-1)-len, len2);
+        strncpy(_tone_buf+len, packet.tune2, len2);
+        _tone_buf[sizeof(_tone_buf)-1] = 0;
+        _sem->give();
+    }
 }

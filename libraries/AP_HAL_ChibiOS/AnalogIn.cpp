@@ -11,14 +11,14 @@
  *
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
+ * 
  * Code by Andrew Tridgell and Siddharth Bharat Purohit
  */
 #include <AP_HAL/AP_HAL.h>
 #include "ch.h"
 #include "hal.h"
 
-#if HAL_USE_ADC == TRUE && !defined(HAL_DISABLE_ADC_DRIVER)
+#if HAL_USE_ADC == TRUE
 
 #include "AnalogIn.h"
 
@@ -34,14 +34,12 @@ extern AP_IOMCU iomcu;
 #define CHIBIOS_ADC_MAVLINK_DEBUG 0
 #endif
 
-// MAVLink is included as we send a mavlink message as part of debug,
-// and also use the MAV_POWER flags below in update_power_flags
 #include <GCS_MAVLink/GCS_MAVLink.h>
 
 #define ANLOGIN_DEBUGGING 0
 
 // base voltage scaling for 12 bit 3.3V ADC
-#define VOLTAGE_SCALING (3.3f/(1<<12))
+#define VOLTAGE_SCALING (3.3f/4096.0f)
 
 #if ANLOGIN_DEBUGGING
  # define Debug(fmt, args ...)  do {printf("%s:%d: " fmt "\n", __FUNCTION__, __LINE__, ## args); } while(0)
@@ -58,40 +56,48 @@ using namespace ChibiOS;
 
 /*
   scaling table between ADC count and actual input voltage, to account
-  for voltage dividers on the board.
+  for voltage dividers on the board. 
  */
 const AnalogIn::pin_info AnalogIn::pin_config[] = HAL_ANALOG_PINS;
 
-#define ADC_GRP1_NUM_CHANNELS   ARRAY_SIZE(AnalogIn::pin_config)
+#define ADC_GRP1_NUM_CHANNELS   ARRAY_SIZE_SIMPLE(AnalogIn::pin_config)
 
 // samples filled in by ADC DMA engine
 adcsample_t *AnalogIn::samples;
 uint32_t AnalogIn::sample_sum[ADC_GRP1_NUM_CHANNELS];
 uint32_t AnalogIn::sample_count;
 
-AnalogSource::AnalogSource(int16_t pin) :
-    _pin(pin)
+AnalogSource::AnalogSource(int16_t pin, float initial_value) :
+    _pin(pin),
+    _value(initial_value),
+    _value_ratiometric(initial_value),
+    _latest_value(initial_value),
+    _sum_count(0),
+    _sum_value(0),
+    _sum_ratiometric(0)
 {
+    _semaphore = hal.util->new_semaphore();
 }
 
 
-float AnalogSource::read_average()
+float AnalogSource::read_average() 
 {
-    WITH_SEMAPHORE(_semaphore);
-
-    if (_sum_count == 0) {
-        return _value;
+    if (_semaphore->take(1)) {
+        if (_sum_count == 0) {
+            _semaphore->give();
+            return _value;
+        }
+        _value = _sum_value / _sum_count;
+        _value_ratiometric = _sum_ratiometric / _sum_count;
+        _sum_value = 0;
+        _sum_ratiometric = 0;
+        _sum_count = 0;
+        _semaphore->give();
     }
-    _value = _sum_value / _sum_count;
-    _value_ratiometric = _sum_ratiometric / _sum_count;
-    _sum_value = 0;
-    _sum_ratiometric = 0;
-    _sum_count = 0;
-
     return _value;
 }
 
-float AnalogSource::read_latest()
+float AnalogSource::read_latest() 
 {
     return _latest_value;
 }
@@ -142,14 +148,16 @@ void AnalogSource::set_pin(uint8_t pin)
     if (_pin == pin) {
         return;
     }
-    WITH_SEMAPHORE(_semaphore);
-    _pin = pin;
-    _sum_value = 0;
-    _sum_ratiometric = 0;
-    _sum_count = 0;
-    _latest_value = 0;
-    _value = 0;
-    _value_ratiometric = 0;
+    if (_semaphore->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        _pin = pin;
+        _sum_value = 0;
+        _sum_ratiometric = 0;
+        _sum_count = 0;
+        _latest_value = 0;
+        _value = 0;
+        _value_ratiometric = 0;
+        _semaphore->give();
+    }
 }
 
 /*
@@ -157,22 +165,23 @@ void AnalogSource::set_pin(uint8_t pin)
  */
 void AnalogSource::_add_value(float v, float vcc5V)
 {
-    WITH_SEMAPHORE(_semaphore);
-
-    _latest_value = v;
-    _sum_value += v;
-    if (vcc5V < 3.0f) {
-        _sum_ratiometric += v;
-    } else {
-        // this compensates for changes in the 5V rail relative to the
-        // 3.3V reference used by the ADC.
-        _sum_ratiometric += v * 5.0f / vcc5V;
-    }
-    _sum_count++;
-    if (_sum_count == 254) {
-        _sum_value /= 2;
-        _sum_ratiometric /= 2;
-        _sum_count /= 2;
+    if (_semaphore->take(1)) {
+        _latest_value = v;
+        _sum_value += v;
+        if (vcc5V < 3.0f) {
+            _sum_ratiometric += v;
+        } else {
+            // this compensates for changes in the 5V rail relative to the
+            // 3.3V reference used by the ADC.
+            _sum_ratiometric += v * 5.0f / vcc5V;
+        }
+        _sum_count++;
+        if (_sum_count == 254) {
+            _sum_value /= 2;
+            _sum_ratiometric /= 2;
+            _sum_count /= 2;
+        }
+        _semaphore->give();
     }
 }
 
@@ -180,13 +189,13 @@ void AnalogSource::_add_value(float v, float vcc5V)
 /*
   callback from ADC driver when sample buffer is filled
  */
-void AnalogIn::adccallback(ADCDriver *adcp)
+void AnalogIn::adccallback(ADCDriver *adcp, adcsample_t *buffer, size_t n)
 {
-    const adcsample_t *buffer = samples;
-
-    stm32_cacheBufferInvalidate(buffer, sizeof(adcsample_t)*ADC_DMA_BUF_DEPTH*ADC_GRP1_NUM_CHANNELS);
+    if (buffer != samples) {
+        return;
+    }
     for (uint8_t i = 0; i < ADC_DMA_BUF_DEPTH; i++) {
-        for (uint8_t j = 0; j < ADC_GRP1_NUM_CHANNELS; j++) {
+        for (uint8_t j = 0; j < ADC_GRP1_NUM_CHANNELS; j++) { 
             sample_sum[j] += *buffer++;
         }
     }
@@ -209,29 +218,12 @@ void AnalogIn::init()
     adcgrpcfg.circular = true;
     adcgrpcfg.num_channels = ADC_GRP1_NUM_CHANNELS;
     adcgrpcfg.end_cb = adccallback;
-#if defined(STM32H7)
-    // use 12 bits resolution to keep scaling factors the same as other boards.
-    // todo: enable oversampling in cfgr2 ?
-    adcgrpcfg.cfgr = ADC_CFGR_CONT | ADC_CFGR_RES_12BITS;
-#else
-    adcgrpcfg.sqr1 = ADC_SQR1_NUM_CH(ADC_GRP1_NUM_CHANNELS);
     adcgrpcfg.cr2 = ADC_CR2_SWSTART;
-#endif
+    adcgrpcfg.sqr1 = ADC_SQR1_NUM_CH(ADC_GRP1_NUM_CHANNELS);
 
     for (uint8_t i=0; i<ADC_GRP1_NUM_CHANNELS; i++) {
         uint8_t chan = pin_config[i].channel;
         // setup cycles per sample for the channel
-#if defined(STM32H7)
-        adcgrpcfg.pcsel |= (1<<chan);
-        adcgrpcfg.smpr[chan/10] |= ADC_SMPR_SMP_384P5 << (3*(chan%10));
-        if (i < 4) {
-            adcgrpcfg.sqr[0] |= chan << (6*(i+1));
-        } else if (i < 9) {
-            adcgrpcfg.sqr[1] |= chan << (6*(i-4));
-        } else {
-            adcgrpcfg.sqr[2] |= chan << (6*(i-9));
-        }
-#else
         if (chan < 10) {
             adcgrpcfg.smpr2 |= ADC_SAMPLE_480 << (3*chan);
         } else {
@@ -245,7 +237,6 @@ void AnalogIn::init()
         } else {
             adcgrpcfg.sqr1 |= chan << (5*(i-12));
         }
-#endif
     }
     adcStartConversion(&ADCD1, &adcgrpcfg, samples, ADC_DMA_BUF_DEPTH);
 }
@@ -284,7 +275,7 @@ void AnalogIn::_timer_tick(void)
 
     // update power status flags
     update_power_flags();
-
+    
     // match the incoming channels to the currently active pins
     for (uint8_t i=0; i < ADC_GRP1_NUM_CHANNELS; i++) {
 #ifdef ANALOG_VCC_5V_PIN
@@ -294,11 +285,6 @@ void AnalogIn::_timer_tick(void)
             _board_voltage = buf_adc[i] * pin_config[i].scaling;
         }
 #endif
-#ifdef FMU_SERVORAIL_ADC_CHAN
-        if (pin_config[i].channel == FMU_SERVORAIL_ADC_CHAN) {
-           _servorail_voltage = buf_adc[i] * pin_config[i].scaling;
-        }
-#endif
     }
 
 #if HAL_WITH_IO_MCU
@@ -306,7 +292,7 @@ void AnalogIn::_timer_tick(void)
     _servorail_voltage = iomcu.get_vservo();
     _rssi_voltage = iomcu.get_vrssi();
 #endif
-
+    
     for (uint8_t i=0; i<ADC_GRP1_NUM_CHANNELS; i++) {
         Debug("chan %u value=%u\n",
               (unsigned)pin_config[i].channel,
@@ -341,11 +327,11 @@ void AnalogIn::_timer_tick(void)
 #endif
 }
 
-AP_HAL::AnalogSource* AnalogIn::channel(int16_t pin)
+AP_HAL::AnalogSource* AnalogIn::channel(int16_t pin) 
 {
     for (uint8_t j=0; j<ANALOG_MAX_CHANNELS; j++) {
         if (_channels[j] == nullptr) {
-            _channels[j] = new AnalogSource(pin);
+            _channels[j] = new AnalogSource(pin, 0.0f);
             return _channels[j];
         }
     }
@@ -365,41 +351,32 @@ void AnalogIn::update_power_flags(void)
         flags |= MAV_POWER_STATUS_BRICK_VALID;
     }
 #endif
-
+    
 #ifdef HAL_GPIO_PIN_VDD_SERVO_VALID
     if (!palReadLine(HAL_GPIO_PIN_VDD_SERVO_VALID)) {
         flags |= MAV_POWER_STATUS_SERVO_VALID;
     }
-#elif defined(HAL_GPIO_PIN_VDD_BRICK2_VALID)
-    // some boards defined BRICK2 instead of servo valid
-    if (!palReadLine(HAL_GPIO_PIN_VDD_BRICK2_VALID)) {
-        flags |= MAV_POWER_STATUS_SERVO_VALID;
-    }
 #endif
-
+    
 #ifdef HAL_GPIO_PIN_VBUS
 	if (palReadLine(HAL_GPIO_PIN_VBUS)) {
         flags |= MAV_POWER_STATUS_USB_CONNECTED;
     }
-#elif defined(HAL_GPIO_PIN_nVBUS)
-    if (!palReadLine(HAL_GPIO_PIN_nVBUS)) {
-        flags |= MAV_POWER_STATUS_USB_CONNECTED;
-    }
 #endif
-
+    
 #ifdef HAL_GPIO_PIN_VDD_5V_HIPOWER_OC
     if (!palReadLine(HAL_GPIO_PIN_VDD_5V_HIPOWER_OC)) {
         flags |= MAV_POWER_STATUS_PERIPH_HIPOWER_OVERCURRENT;
-    }
+    }    
 #endif
 
 #ifdef HAL_GPIO_PIN_VDD_5V_PERIPH_OC
     if (!palReadLine(HAL_GPIO_PIN_VDD_5V_PERIPH_OC)) {
         flags |= MAV_POWER_STATUS_PERIPH_OVERCURRENT;
-    }
+    }    
 #endif
-    if (_power_flags != 0 &&
-        _power_flags != flags &&
+    if (_power_flags != 0 && 
+        _power_flags != flags && 
         hal.util->get_soft_armed()) {
         // the power status has changed while armed
         flags |= MAV_POWER_STATUS_CHANGED;
@@ -407,3 +384,4 @@ void AnalogIn::update_power_flags(void)
     _power_flags = flags;
 }
 #endif // HAL_USE_ADC
+

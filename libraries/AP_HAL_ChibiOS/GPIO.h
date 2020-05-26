@@ -11,7 +11,7 @@
  *
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
+ * 
  * Code by Andrew Tridgell and Siddharth Bharat Purohit
  */
 #pragma once
@@ -29,24 +29,18 @@
 class ChibiOS::GPIO : public AP_HAL::GPIO {
 public:
     GPIO();
-    void    init() override;
-    void    pinMode(uint8_t pin, uint8_t output) override;
-    uint8_t read(uint8_t pin) override;
-    void    write(uint8_t pin, uint8_t value) override;
-    void    toggle(uint8_t pin) override;
+    void    init();
+    void    pinMode(uint8_t pin, uint8_t output);
+    uint8_t read(uint8_t pin);
+    void    write(uint8_t pin, uint8_t value);
+    void    toggle(uint8_t pin);
 
     /* Alternative interface: */
-    AP_HAL::DigitalSource* channel(uint16_t n) override;
+    AP_HAL::DigitalSource* channel(uint16_t n);
 
-    /* Interrupt interface - fast, for RCOutput and SPI radios */
-    bool    attach_interrupt(uint8_t interrupt_num,
-                             AP_HAL::Proc p,
-                             INTERRUPT_TRIGGER_TYPE mode) override;
-
-    /* Interrupt interface - for AP_HAL::GPIO */
-    bool    attach_interrupt(uint8_t pin,
-                             irq_handler_fn_t fn,
-                             INTERRUPT_TRIGGER_TYPE mode) override;
+    /* Interrupt interface: */
+    bool    attach_interrupt(uint8_t interrupt_num, AP_HAL::Proc p,
+            uint8_t mode);
 
     /* return true if USB cable is connected */
     bool    usb_connected(void) override;
@@ -55,31 +49,19 @@ public:
 
     /* attach interrupt via ioline_t */
     bool _attach_interrupt(ioline_t line, AP_HAL::Proc p, uint8_t mode);
-
-    /*
-      block waiting for a pin to change. A timeout of 0 means wait
-      forever. Return true on pin change, false on timeout
-     */
-    bool wait_pin(uint8_t pin, INTERRUPT_TRIGGER_TYPE mode, uint32_t timeout_us) override;
     
 private:
     bool _usb_connected;
     bool _ext_started;
-
-    bool _attach_interruptI(ioline_t line, palcallback_t cb, void *p, uint8_t mode);
-    bool _attach_interrupt(ioline_t line, palcallback_t cb, void *p, uint8_t mode);
-#ifdef HAL_PIN_ALT_CONFIG
-    void setup_alt_config(void);
-#endif
 };
 
 class ChibiOS::DigitalSource : public AP_HAL::DigitalSource {
 public:
     DigitalSource(ioline_t line);
-    void    mode(uint8_t output) override;
-    uint8_t read() override;
-    void    write(uint8_t value) override;
-    void    toggle() override;
+    void    mode(uint8_t output);
+    uint8_t read();
+    void    write(uint8_t value);
+    void    toggle();
 private:
     ioline_t line;
 };

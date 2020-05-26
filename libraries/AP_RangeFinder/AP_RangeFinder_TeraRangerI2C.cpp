@@ -28,10 +28,14 @@ extern const AP_HAL::HAL& hal;
 #define TR_WHOAMI  0x01
 #define TR_WHOAMI_VALUE 0xA1
 
+/*
+   The constructor also initializes the rangefinder. Note that this
+   constructor is not called until detect() returns true, so we
+   already know that we should setup the rangefinder
+*/
 AP_RangeFinder_TeraRangerI2C::AP_RangeFinder_TeraRangerI2C(RangeFinder::RangeFinder_State &_state,
-                                                           AP_RangeFinder_Params &_params,
                                                            AP_HAL::OwnPtr<AP_HAL::I2CDevice> i2c_dev)
-    : AP_RangeFinder_Backend(_state, _params)
+    : AP_RangeFinder_Backend(_state)
     , dev(std::move(i2c_dev))
 {
 }
@@ -42,14 +46,13 @@ AP_RangeFinder_TeraRangerI2C::AP_RangeFinder_TeraRangerI2C(RangeFinder::RangeFin
    there.
 */
 AP_RangeFinder_Backend *AP_RangeFinder_TeraRangerI2C::detect(RangeFinder::RangeFinder_State &_state,
-																AP_RangeFinder_Params &_params,
                                                              AP_HAL::OwnPtr<AP_HAL::I2CDevice> i2c_dev)
 {
     if (!i2c_dev) {
         return nullptr;
     }
 
-    AP_RangeFinder_TeraRangerI2C *sensor = new AP_RangeFinder_TeraRangerI2C(_state, _params, std::move(i2c_dev));
+    AP_RangeFinder_TeraRangerI2C *sensor = new AP_RangeFinder_TeraRangerI2C(_state, std::move(i2c_dev));
     if (!sensor) {
         return nullptr;
     }
@@ -67,7 +70,9 @@ AP_RangeFinder_Backend *AP_RangeFinder_TeraRangerI2C::detect(RangeFinder::RangeF
  */
 bool AP_RangeFinder_TeraRangerI2C::init(void)
 {
-    dev->get_semaphore()->take_blocking();
+    if (!dev->get_semaphore()->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        return false;
+    }
 
     dev->set_retries(10);
 
@@ -97,7 +102,7 @@ bool AP_RangeFinder_TeraRangerI2C::init(void)
 
     dev->set_retries(1);
 
-    dev->register_periodic_callback(10000,
+    dev->register_periodic_callback(50000,
                                     FUNCTOR_BIND_MEMBER(&AP_RangeFinder_TeraRangerI2C::timer, void));
 
     return true;
@@ -138,7 +143,8 @@ bool AP_RangeFinder_TeraRangerI2C::process_raw_measure(uint16_t raw_distance, ui
       return false;
   } else if (raw_distance == 0x0000) {
       // Too close
-      return false;
+      output_distance_cm =  state.min_distance_cm;
+      return true;
   } else if (raw_distance == 0x0001) {
       // Unable to measure
       return false;
@@ -149,7 +155,7 @@ bool AP_RangeFinder_TeraRangerI2C::process_raw_measure(uint16_t raw_distance, ui
 }
 
 /*
-  timer called at 100Hz, EVO sensors max freq is 100..240Hz
+  timer called at 20Hz
 */
 void AP_RangeFinder_TeraRangerI2C::timer(void)
 {
@@ -157,13 +163,12 @@ void AP_RangeFinder_TeraRangerI2C::timer(void)
     uint16_t _raw_distance = 0;
     uint16_t _distance_cm = 0;
 
-    if (collect_raw(_raw_distance)) {
-        WITH_SEMAPHORE(_sem);
-
-        if (process_raw_measure(_raw_distance, _distance_cm)){
+    if (collect_raw(_raw_distance) && _sem->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        if(process_raw_measure(_raw_distance, _distance_cm)){
             accum.sum += _distance_cm;
             accum.count++;
         }
+        _sem->give();
     }
     // and immediately ask for a new reading
     measure();
@@ -174,15 +179,15 @@ void AP_RangeFinder_TeraRangerI2C::timer(void)
 */
 void AP_RangeFinder_TeraRangerI2C::update(void)
 {
-    WITH_SEMAPHORE(_sem);
-
-    if (accum.count > 0) {
-        state.distance_cm = accum.sum / accum.count;
-        state.last_reading_ms = AP_HAL::millis();
-        accum.sum = 0;
-        accum.count = 0;
-        update_status();        
-    } else if (AP_HAL::millis() - state.last_reading_ms > 200) {
-        set_status(RangeFinder::Status::NoData);
+    if (_sem->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        if (accum.count > 0) {
+            state.distance_cm = accum.sum / accum.count;
+            accum.sum = 0;
+            accum.count = 0;
+            update_status();
+        } else {
+            set_status(RangeFinder::RangeFinder_NoData);
+        }
+        _sem->give();
     }
 }

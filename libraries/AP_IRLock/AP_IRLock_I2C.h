@@ -5,7 +5,6 @@
 #pragma once
 
 #include "IRLock.h"
-#include <AP_HAL/AP_HAL.h>
 
 class AP_IRLock_I2C : public IRLock
 {
@@ -36,6 +35,6 @@ private:
 
     void pixel_to_1M_plane(float pix_x, float pix_y, float &ret_x, float &ret_y);
 
-    HAL_Semaphore sem;
+    AP_HAL::Semaphore *sem;
     uint32_t _last_read_ms;
 };

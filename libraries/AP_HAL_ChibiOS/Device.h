@@ -17,10 +17,6 @@
 #include <inttypes.h>
 #include <AP_HAL/HAL.h>
 #include "Semaphores.h"
-#include "AP_HAL_ChibiOS.h"
-
-#if HAL_USE_I2C == TRUE || HAL_USE_SPI == TRUE
-
 #include "Scheduler.h"
 #include "shared_dma.h"
 #include "hwdef/common/bouncebuffer.h"
@@ -39,10 +35,10 @@ public:
     bool adjust_timer(AP_HAL::Device::PeriodicHandle h, uint32_t period_usec);
     static void bus_thread(void *arg);
 
-    bool bouncebuffer_setup(const uint8_t *&buf_tx, uint16_t tx_len,
-                            uint8_t *&buf_rx, uint16_t rx_len) WARN_IF_UNUSED;
+    void bouncebuffer_setup(const uint8_t *&buf_tx, uint16_t tx_len,
+                            uint8_t *&buf_rx, uint16_t rx_len);
     void bouncebuffer_finish(const uint8_t *buf_tx, uint8_t *buf_rx, uint16_t rx_len);
-
+    
 private:
     struct callback_info {
         struct callback_info *next;
@@ -61,5 +57,3 @@ private:
 };
 
 }
-
-#endif // I2C or SPI

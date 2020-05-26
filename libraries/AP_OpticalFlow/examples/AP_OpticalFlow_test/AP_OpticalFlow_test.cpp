@@ -26,12 +26,14 @@ public:
     Compass compass;
     AP_InertialSensor ins;
     AP_SerialManager serial_manager;
-    RangeFinder sonar;
-    AP_AHRS_NavEKF ahrs{AP_AHRS_NavEKF::FLAG_ALWAYS_USE_EKF};
+    RangeFinder sonar{serial_manager, ROTATION_PITCH_270};
+    AP_AHRS_NavEKF ahrs{EKF2, EKF3, AP_AHRS_NavEKF::FLAG_ALWAYS_USE_EKF};
+    NavEKF2 EKF2{&ahrs, sonar};
+    NavEKF3 EKF3{&ahrs, sonar};
 };
 
 static DummyVehicle vehicle;
-static OpticalFlow optflow;
+static OpticalFlow optflow{vehicle.ahrs};
 
 void setup()
 {
@@ -40,7 +42,7 @@ void setup()
     hal.scheduler->delay(1000);
 
     // flowSensor initialization
-    optflow.init(-1);
+    optflow.init();
 
     if (!optflow.healthy()) {
         hal.console->printf("Failed to initialise PX4Flow ");

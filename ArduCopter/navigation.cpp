@@ -14,7 +14,9 @@ void Copter::run_nav_updates(void)
 uint32_t Copter::home_distance()
 {
     if (position_ok()) {
-        _home_distance = current_loc.get_distance(ahrs.get_home()) * 100;
+        const Vector3f home = pv_location_to_vector(ahrs.get_home());
+        const Vector3f curr = inertial_nav.get_position();
+        _home_distance = get_horizontal_distance_cm(curr, home);
     }
     return _home_distance;
 }
@@ -23,7 +25,9 @@ uint32_t Copter::home_distance()
 int32_t Copter::home_bearing()
 {
     if (position_ok()) {
-        _home_bearing = current_loc.get_bearing_to(ahrs.get_home());
+        const Vector3f home = pv_location_to_vector(ahrs.get_home());
+        const Vector3f curr = inertial_nav.get_position();
+        _home_bearing = get_bearing_cd(curr,home);
     }
     return _home_bearing;
 }

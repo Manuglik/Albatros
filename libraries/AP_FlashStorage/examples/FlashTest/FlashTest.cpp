@@ -54,33 +54,8 @@ bool FlashTest::flash_write(uint8_t sector, uint32_t offset, const uint8_t *data
                       (unsigned)length);
     }
     uint8_t *b = &flash[sector][offset];
-    if ((offset & 1) || (length & 1)) {
-        AP_HAL::panic("FATAL: invalid write at %u:%u len=%u\n",
-                      (unsigned)sector,
-                      (unsigned)offset,
-                      (unsigned)length);
-    }
-    const uint16_t *data16 = (const uint16_t *)data;
-    uint16_t *b16 = (uint16_t *)&b[0];
-    uint16_t len16 = length/2;
-    for (uint16_t i=0; i<len16; i++) {
-        if (data16[i] & !b16[i]) {
-            AP_HAL::panic("FATAL: invalid write16 at %u:%u 0x%04x 0x%04x\n",
-                          (unsigned)sector,
-                          unsigned(offset+i),
-                          b[i],
-                          data[i]);
-        }
-#ifndef AP_FLASHSTORAGE_MULTI_WRITE
-        if (data16[i] != b16[i] && data16[i] != 0xFFFF && b16[i] != 0xFFFF) {
-            AP_HAL::panic("FATAL: invalid write16 at %u:%u 0x%04x 0x%04x\n",
-                          (unsigned)sector,
-                          unsigned(offset+i),
-                          b[i],
-                          data[i]);
-        }
-#endif
-        b16[i] &= data16[i];
+    for (uint16_t i=0; i<length; i++) {
+        b[i] &= data[i];
     }
     return true;
 }
@@ -130,15 +105,11 @@ void FlashTest::write(uint16_t offset, const uint8_t *data, uint16_t length)
  */
 void FlashTest::setup(void)
 {
-    hal.console->printf("AP_FlashStorage test\n");
-}
-
-void FlashTest::loop(void)
-{
     flash[0] = (uint8_t *)malloc(flash_sector_size);
     flash[1] = (uint8_t *)malloc(flash_sector_size);
     flash_erase(0);
     flash_erase(1);
+    hal.console->printf("AP_FlashStorage test\n");
 
     if (!storage.init()) {
         AP_HAL::panic("Failed first init()");
@@ -183,10 +154,12 @@ void FlashTest::loop(void)
     if (memcmp(mem_buffer, mem_mirror, sizeof(mem_buffer)) != 0) {
         AP_HAL::panic("FATAL: data mis-match");
     }
-    while (true) {
-        hal.console->printf("TEST PASSED");
-        hal.scheduler->delay(20000);
-    }
+    AP_HAL::panic("TEST PASSED");
+}
+
+void FlashTest::loop(void)
+{
+    hal.console->printf("loop\n");
 }
 
 FlashTest flashtest;

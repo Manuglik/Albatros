@@ -5,35 +5,22 @@
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
 extern const AP_HAL::HAL& hal;
 
-AP_Compass_SITL::AP_Compass_SITL()
-    : _sitl(AP::sitl())
+AP_Compass_SITL::AP_Compass_SITL(Compass &compass):
+    _sitl(AP::sitl()),
+    _has_sample(false),
+    AP_Compass_Backend(compass)
 {
     if (_sitl != nullptr) {
         _compass._setup_earth_field();
-        for (uint8_t i=0; i<MAX_CONNECTED_MAGS; i++) {
-            uint32_t dev_id = _sitl->mag_devid[i];
-            if (dev_id == 0) {
-                continue;
-            }
-            uint8_t instance;
-            if (!register_compass(dev_id, instance)) {
-                continue;
-            } else if (_num_compass<MAX_SITL_COMPASSES) {
-                _compass_instance[_num_compass] = instance;
-                set_dev_id(_compass_instance[_num_compass], dev_id);
+        for (uint8_t i=0; i<SITL_NUM_COMPASSES; i++) {
+            // default offsets to correct value
+            compass.set_offsets(i, _sitl->mag_ofs);
+            
+            _compass_instance[i] = register_compass();
+            set_dev_id(_compass_instance[i], AP_HAL::Device::make_bus_id(AP_HAL::Device::BUS_TYPE_SITL, i, 0, DEVTYPE_SITL));
 
-                // save so the compass always comes up configured in SITL
-                save_dev_id(_compass_instance[_num_compass]);
-                set_rotation(instance, ROTATION_NONE);
-                _num_compass++;
-            }
-        }
-
-        // Scroll through the registered compasses, and set the offsets
-        for (uint8_t i=0; i<_num_compass; i++) {
-            if (_compass.get_offsets(i).is_zero()) {
-                _compass.set_offsets(i, _sitl->mag_ofs);
-            }
+            // save so the compass always comes up configured in SITL
+            save_dev_id(_compass_instance[i]);
         }
         
         // make first compass external
@@ -122,30 +109,53 @@ void AP_Compass_SITL::_timer()
     new_mag_data = _eliptical_corr * new_mag_data;
     new_mag_data -= _sitl->mag_ofs.get();
 
-    for (uint8_t i=0; i<_num_compass; i++) {
+    for (uint8_t i=0; i<SITL_NUM_COMPASSES; i++) {
         Vector3f f = new_mag_data;
         if (i == 0) {
             // rotate the first compass, allowing for testing of external compass rotation
             f.rotate_inverse((enum Rotation)_sitl->mag_orient.get());
-            // and add in AHRS_ORIENTATION setting if not an external compass
-            if (get_board_orientation() == ROTATION_CUSTOM) {
-                f = _sitl->ahrs_rotation * f;
-            } else {
-                f.rotate(get_board_orientation());
-            }
-
-            // scale the first compass to simulate sensor scale factor errors
-            f *= _sitl->mag_scaling;
         }
-        
-        accumulate_sample(f, _compass_instance[i], 10);
+        rotate_field(f, _compass_instance[i]);
+        publish_raw_field(f, _compass_instance[i]);
+        correct_field(f, _compass_instance[i]);
+
+        _mag_accum[i] += f;
     }
+
+    if (!_sem->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
+        return;
+    }
+
+    _accum_count++;
+    if (_accum_count == 10) {
+        for (uint8_t i=0; i<SITL_NUM_COMPASSES; i++) {
+            _mag_accum[i] /= 2;
+        }
+        _accum_count = 5;
+        _has_sample = true;
+    }
+    _sem->give();
 }
 
 void AP_Compass_SITL::read()
 {
-    for (uint8_t i=0; i<_num_compass; i++) {
-        drain_accumulated_samples(_compass_instance[i], nullptr);
+    if (_sem->take_nonblocking()) {
+        if (!_has_sample) {
+            _sem->give();
+            return;
+        }
+
+        for (uint8_t i=0; i<SITL_NUM_COMPASSES; i++) {
+            Vector3f field(_mag_accum[i]);
+            field /= _accum_count;
+            _mag_accum[i].zero();
+            publish_filtered_field(field, _compass_instance[i]);
+        }
+        _accum_count = 0;
+
+        _has_sample = false;
+        _sem->give();
     }
+
 }
 #endif

@@ -27,15 +27,14 @@
 class AP_GPS_ERB : public AP_GPS_Backend
 {
 public:
-
-    using AP_GPS_Backend::AP_GPS_Backend;
+    AP_GPS_ERB(AP_GPS &_gps, AP_GPS::GPS_State &_state, AP_HAL::UARTDriver *_port);
 
     // Methods
-    bool read() override;
+    bool read();
 
-    AP_GPS::GPS_Status highest_supported_status(void) override { return AP_GPS::GPS_OK_FIX_3D_RTK_FIXED; }
+    AP_GPS::GPS_Status highest_supported_status(void) { return AP_GPS::GPS_OK_FIX_3D_RTK_FIXED; }
 
-    bool supports_mavlink_gps_rtk_message() override { return true; }
+    bool supports_mavlink_gps_rtk_message() { return true; }
 
     static bool _detect(struct ERB_detect_state &state, uint8_t data);
 
@@ -151,5 +150,5 @@ private:
     bool _parse_gps();
 
     // used to update fix between status and position packets
-    AP_GPS::GPS_Status next_fix = AP_GPS::NO_FIX;
+    AP_GPS::GPS_Status next_fix;
 };

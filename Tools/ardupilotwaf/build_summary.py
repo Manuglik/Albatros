@@ -214,12 +214,7 @@ information about the first %d targets will be printed.
 ''' % MAX_TARGETS)
 
 def configure(cfg):
-    size_name = 'size'
-
-    if cfg.env.TOOLCHAIN != 'native':
-        size_name = cfg.env.TOOLCHAIN + '-' + size_name
-
-    cfg.find_program(size_name, var='SIZE', mandatory=False)
+    cfg.find_toolchain_program('size', mandatory=False)
 
     if not cfg.env.BUILD_SUMMARY_HEADER:
         cfg.env.BUILD_SUMMARY_HEADER = [

@@ -20,16 +20,21 @@ extern const AP_HAL::HAL& hal;
 OpticalFlow_backend::OpticalFlow_backend(OpticalFlow &_frontend) :
     frontend(_frontend)
 {
+    _sem = hal.util->new_semaphore();    
 }
 
 OpticalFlow_backend::~OpticalFlow_backend(void)
 {
+    if (_sem) {
+        delete _sem;
+    }
 }
 
 // update the frontend
 void OpticalFlow_backend::_update_frontend(const struct OpticalFlow::OpticalFlow_state &state)
 {
-    frontend.update_state(state);
+    frontend._state = state;
+    frontend._last_update_ms = AP_HAL::millis();
 }
 
 // apply yaw angle to a vector

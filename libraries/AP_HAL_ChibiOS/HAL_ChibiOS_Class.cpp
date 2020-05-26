@@ -11,7 +11,7 @@
  *
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
+ * 
  * Code by Andrew Tridgell and Siddharth Bharat Purohit
  */
 #include <AP_HAL/AP_HAL.h>
@@ -26,12 +26,6 @@
 #include "sdcard.h"
 #include "hwdef/common/usbcfg.h"
 #include "hwdef/common/stm32_util.h"
-#include "hwdef/common/watchdog.h"
-#include <AP_BoardConfig/AP_BoardConfig.h>
-#include <AP_InternalError/AP_InternalError.h>
-#ifndef HAL_BOOTLOADER_BUILD
-#include <AP_Logger/AP_Logger.h>
-#endif
 
 #include <hwdef.h>
 
@@ -43,7 +37,6 @@ static HAL_UARTD_DRIVER;
 static HAL_UARTE_DRIVER;
 static HAL_UARTF_DRIVER;
 static HAL_UARTG_DRIVER;
-static HAL_UARTH_DRIVER;
 #else
 static Empty::UARTDriver uartADriver;
 static Empty::UARTDriver uartBDriver;
@@ -52,10 +45,9 @@ static Empty::UARTDriver uartDDriver;
 static Empty::UARTDriver uartEDriver;
 static Empty::UARTDriver uartFDriver;
 static Empty::UARTDriver uartGDriver;
-static Empty::UARTDriver uartHDriver;
 #endif
 
-#if HAL_USE_I2C == TRUE && defined(HAL_I2C_DEVICE_LIST)
+#if HAL_USE_I2C == TRUE
 static ChibiOS::I2CDeviceManager i2cDeviceManager;
 #else
 static Empty::I2CDeviceManager i2cDeviceManager;
@@ -67,7 +59,7 @@ static ChibiOS::SPIDeviceManager spiDeviceManager;
 static Empty::SPIDeviceManager spiDeviceManager;
 #endif
 
-#if HAL_USE_ADC == TRUE && !defined(HAL_DISABLE_ADC_DRIVER)
+#if HAL_USE_ADC == TRUE
 static ChibiOS::AnalogIn analogIn;
 #else
 static Empty::AnalogIn analogIn;
@@ -91,18 +83,6 @@ static ChibiOS::Scheduler schedulerInstance;
 static ChibiOS::Util utilInstance;
 static Empty::OpticalFlow opticalFlowDriver;
 
-#if HAL_WITH_DSP
-static ChibiOS::DSP dspDriver;
-#else
-static Empty::DSP dspDriver;
-#endif
-
-#ifndef HAL_NO_FLASH_SUPPORT
-static ChibiOS::Flash flashDriver;
-#else
-static Empty::Flash flashDriver;
-#endif
-
 
 #if HAL_WITH_IO_MCU
 HAL_UART_IO_DRIVER;
@@ -119,7 +99,6 @@ HAL_ChibiOS::HAL_ChibiOS() :
         &uartEDriver,
         &uartFDriver,
         &uartGDriver,
-        &uartHDriver,
         &i2cDeviceManager,
         &spiDeviceManager,
         &analogIn,
@@ -131,8 +110,6 @@ HAL_ChibiOS::HAL_ChibiOS() :
         &schedulerInstance,
         &utilInstance,
         &opticalFlowDriver,
-        &flashDriver,
-        &dspDriver,
         nullptr
         )
 {}
@@ -165,15 +142,9 @@ thread_t* get_main_thread()
 }
 
 static AP_HAL::HAL::Callbacks* g_callbacks;
-
-static void main_loop()
+static THD_FUNCTION(main_loop,arg)
 {
     daemon_task = chThdGetSelfX();
-
-    /*
-      switch to high priority for main loop
-     */
-    chThdSetPriority(APM_MAIN_PRIORITY);
 
 #ifdef HAL_I2C_CLEAR_BUS
     // Clear all I2C Buses. This can be needed on some boards which
@@ -182,14 +153,15 @@ static void main_loop()
 #endif
 
     ChibiOS::Shared_DMA::init();
-    peripheral_power_enable();
 
+    peripheral_power_enable();
+        
     hal.uartA->begin(115200);
 
 #ifdef HAL_SPI_CHECK_CLOCK_FREQ
     // optional test of SPI clock frequencies
     ChibiOS::SPIDevice::test_clock_freq();
-#endif
+#endif 
 
     hal.uartB->begin(38400);
     hal.uartC->begin(57600);
@@ -202,38 +174,14 @@ static void main_loop()
      */
     hal_chibios_set_priority(APM_STARTUP_PRIORITY);
 
-    if (stm32_was_watchdog_reset()) {
-        // load saved watchdog data
-        stm32_watchdog_load((uint32_t *)&utilInstance.persistent_data, (sizeof(utilInstance.persistent_data)+3)/4);
-        utilInstance.last_persistent_data = utilInstance.persistent_data;
-    }
-
     schedulerInstance.hal_initialized();
 
     g_callbacks->setup();
-
-#ifdef IOMCU_FW
-    stm32_watchdog_init();
-#elif !defined(HAL_BOOTLOADER_BUILD)
-    // setup watchdog to reset if main loop stops
-    if (AP_BoardConfig::watchdog_enabled()) {
-        stm32_watchdog_init();
-    }
-
-#ifndef HAL_NO_LOGGING
-    if (hal.util->was_watchdog_reset()) {
-        INTERNAL_ERROR(AP_InternalError::error_t::watchdog_reset);
-    }
-#endif // HAL_NO_LOGGING
-#endif // IOMCU_FW
-
-    schedulerInstance.watchdog_pat();
-
     hal.scheduler->system_initialized();
 
     thread_running = true;
     chRegSetThreadName(SKETCHNAME);
-
+    
     /*
       switch to high priority for main loop
      */
@@ -243,19 +191,16 @@ static void main_loop()
         g_callbacks->loop();
 
         /*
-          give up 50 microseconds of time if the INS loop hasn't
+          give up 250 microseconds of time if the INS loop hasn't
           called delay_microseconds_boost(), to ensure low priority
           drivers get a chance to run. Calling
           delay_microseconds_boost() means we have already given up
           time from the main loop, so we don't need to do it again
           here
          */
-#ifndef HAL_DISABLE_LOOP_DELAY
         if (!schedulerInstance.check_called_boost()) {
-            hal.scheduler->delay_microseconds(50);
+            hal.scheduler->delay_microseconds(250);
         }
-#endif
-        schedulerInstance.watchdog_pat();
     }
     thread_running = false;
 }
@@ -270,10 +215,10 @@ void HAL_ChibiOS::run(int argc, char * const argv[], Callbacks* callbacks) const
      *   RTOS is active.
      */
 
-#if HAL_USE_SERIAL_USB == TRUE
-    usb_initialise();
+#ifdef HAL_USB_PRODUCT_ID
+  setup_usb_strings();
 #endif
-
+    
 #ifdef HAL_STDOUT_SERIAL
     //STDOUT Initialistion
     SerialConfig stdoutcfg =
@@ -289,8 +234,13 @@ void HAL_ChibiOS::run(int argc, char * const argv[], Callbacks* callbacks) const
     assert(callbacks);
     g_callbacks = callbacks;
 
-    //Takeover main
-    main_loop();
+    void *main_thread_wa = hal.util->malloc_type(THD_WORKING_AREA_SIZE(APM_MAIN_THREAD_STACK_SIZE), AP_HAL::Util::MEM_FAST);
+    chThdCreateStatic(main_thread_wa,
+                      APM_MAIN_THREAD_STACK_SIZE,
+                      APM_MAIN_PRIORITY,     /* Initial priority.    */
+                      main_loop,             /* Thread function.     */
+                      nullptr);              /* Thread parameter.    */
+    chThdExit(0);
 }
 
 const AP_HAL::HAL& AP_HAL::get_HAL() {

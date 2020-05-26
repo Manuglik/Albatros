@@ -1,15 +1,15 @@
 #pragma once
 
-#include <AP_Logger/AP_Logger.h>
+#include <DataFlash/DataFlash.h>
 
 #define LOGREADER_MAX_FORMATS 255 // must be >= highest MESSAGE
 
-class AP_LoggerFileReader
+class DataFlashFileReader
 {
 public:
 
-    AP_LoggerFileReader();
-    ~AP_LoggerFileReader();
+    DataFlashFileReader();
+    ~DataFlashFileReader();
 
     bool open_log(const char *logfile);
     bool update(char type[5]);
@@ -22,6 +22,8 @@ public:
 
 protected:
     int fd = -1;
+    bool done_format_msgs = false;
+    virtual void end_format_msgs(void) {}
 
     struct log_Format formats[LOGREADER_MAX_FORMATS] {};
 

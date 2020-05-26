@@ -8,22 +8,36 @@ void Tracker::update_ahrs()
     ahrs.update();
 }
 
+
 /*
   read and update compass
  */
 void Tracker::update_compass(void)
 {
-    if (AP::compass().enabled() && compass.read()) {
+    if (g.compass_enabled && compass.read()) {
         ahrs.set_compass(&compass);
+        if (should_log(MASK_LOG_COMPASS)) {
+            DataFlash.Log_Write_Compass();
+        }
     }
 }
 
-// Save compass offsets
-void Tracker::compass_save() {
-    if (AP::compass().enabled() &&
-        compass.get_learn_type() >= Compass::LEARN_INTERNAL &&
-        !hal.util->get_soft_armed()) {
-        compass.save_offsets();
+/*
+  if the compass is enabled then try to accumulate a reading
+ */
+void Tracker::compass_accumulate(void)
+{
+    if (g.compass_enabled) {
+        compass.accumulate();
+    }    
+}
+
+/*
+ calibrate compass
+*/
+void Tracker::compass_cal_update() {
+    if (!hal.util->get_soft_armed()) {
+        compass.compass_cal_update();
     }
 }
 
@@ -67,8 +81,11 @@ void Tracker::update_GPS(void)
                 // Now have an initial GPS position
                 // use it as the HOME position in future startups
                 current_loc = gps.location();
-                if (!set_home(current_loc)) {
-                    // silently ignored
+                set_home(current_loc);
+
+                if (g.compass_enabled) {
+                    // Set compass declination automatically
+                    compass.set_initial_location(gps.location().lat, gps.location().lng);
                 }
                 ground_start_count = 0;
             }
@@ -82,3 +99,4 @@ void Tracker::handle_battery_failsafe(const char* type_str, const int8_t action)
     // useful failsafes in the future would include actually recalling the vehicle
     // that is tracked before the tracker loses power to continue tracking it
 }
+

@@ -39,11 +39,11 @@ public:
 
     static AP_InertialSensor_Backend *probe(AP_InertialSensor &imu,
                                             AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev,
-                                            enum Rotation rotation);
+                                            enum Rotation rotation = ROTATION_NONE);
 
     static AP_InertialSensor_Backend *probe(AP_InertialSensor &imu,
                                             AP_HAL::OwnPtr<AP_HAL::SPIDevice> dev,
-                                            enum Rotation rotation);
+                                            enum Rotation rotation = ROTATION_NONE);
 
     /* update accel and gyro state */
     bool update() override;
@@ -62,7 +62,6 @@ public:
         Invensense_MPU9250,
         Invensense_ICM20608,
         Invensense_ICM20602,
-        Invensense_ICM20601,
         Invensense_ICM20789,
         Invensense_ICM20689,
     };
@@ -112,12 +111,11 @@ private:
     uint8_t _gyro_instance;
     uint8_t _accel_instance;
 
-    float temp_sensitivity = 1.0f/340; // degC/LSB
-    float temp_zero = 36.53f; // degC
+    float temp_sensitivity = 1.0/340; // degC/LSB
+    float temp_zero = 36.53; // degC
     
     float _temp_filtered;
     float _accel_scale;
-    float _gyro_scale;
 
     float _fifo_accel_scale;
     float _fifo_gyro_scale;

@@ -25,8 +25,7 @@
 #include <SFML/Graphics.hpp>
 #endif
 
-class AP_OSD_SITL : public AP_OSD_Backend
-{
+class AP_OSD_SITL : public AP_OSD_Backend {
 
 public:
     static AP_OSD_Backend *probe(AP_OSD &osd);
@@ -69,7 +68,7 @@ private:
     void load_font();
 
     pthread_t thread;
-    HAL_Semaphore mutex;
+    AP_HAL::Semaphore *mutex;
     uint32_t counter;
     uint32_t last_counter;
 };

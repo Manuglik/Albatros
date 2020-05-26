@@ -5,17 +5,17 @@
 
 # Compiler options here.
 ifeq ($(USE_OPT),)
-  USE_OPT = -g -fomit-frame-pointer -falign-functions=16
+  USE_OPT = -Os -g -fomit-frame-pointer -falign-functions=16  -DCHPRINTF_USE_FLOAT=1
 endif
 
 # C specific options here (added to USE_OPT).
 ifeq ($(USE_COPT),)
-  USE_COPT = -Os
+  USE_COPT =
 endif
 
 # C++ specific options here (added to USE_OPT).
 ifeq ($(USE_CPPOPT),)
-  USE_CPPOPT = -fno-rtti -std=gnu++11
+  USE_CPPOPT = -fno-rtti
 endif
 
 # Enable this if you want the linker to remove unused code and data
@@ -109,29 +109,40 @@ include $(CHIBIOS)/os/various/cpp_wrappers/chcpp.mk
 include $(CHIBIOS)/os/various/fatfs_bindings/fatfs.mk
 endif
 
+VARIOUSSRC = $(STREAMSSRC)
+
+VARIOUSINC = $(STREAMSINC)
 # C sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
-
-CSRC = $(sort $(ALLCSRC))
-
-CSRC += $(HWDEF)/common/stubs.c \
+CSRC = $(STARTUPSRC) \
+       $(KERNSRC) \
+       $(PORTSRC) \
+       $(OSALSRC) \
+       $(HALSRC) \
+       $(PLATFORMSRC) \
+       $(VARIOUSSRC) \
+       $(FATFSSRC) \
+	   $(HWDEF)/common/stubs.c \
 	   $(HWDEF)/common/board.c \
 	   $(HWDEF)/common/usbcfg.c \
-	   $(HWDEF)/common/usbcfg_dualcdc.c \
-	   $(HWDEF)/common/usbcfg_common.c \
 	   $(HWDEF)/common/flash.c \
 	   $(HWDEF)/common/malloc.c \
+	   $(HWDEF)/common/stdio.c \
 	   $(HWDEF)/common/hrt.c \
-       $(HWDEF)/common/stm32_util.c \
-       $(HWDEF)/common/bouncebuffer.c \
-       $(HWDEF)/common/watchdog.c
+	   $(HWDEF)/common/stm32_util.c \
+	   $(HWDEF)/common/bouncebuffer.c
+
+ifeq ($(USE_FATFS),yes)
+CSRC += $(HWDEF)/common/posix.c
+endif
+
 
 #	   $(TESTSRC) \
 #	   test.c
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
-CPPSRC = $(sort $(ALLCPPSRC))
+CPPSRC = $(CHCPPSRC)
 
 # C sources to be compiled in ARM mode regardless of the global setting.
 # NOTE: Mixing ARM and THUMB mode enables the -mthumb-interwork compiler
@@ -154,11 +165,13 @@ TCSRC =
 TCPPSRC =
 
 # List ASM source files here
-ASMSRC = $(ALLASMSRC)
-ASMXSRC = $(ALLXASMSRC)
+ASMSRC =
+ASMXSRC = $(STARTUPASM) $(PORTASM) $(OSALASM)
 
 INCDIR = $(CHIBIOS)/os/license \
-         $(ALLINC) $(HWDEF)/common
+         $(STARTUPINC) $(KERNINC) $(PORTINC) $(OSALINC) $(FATFSINC) \
+         $(HALINC) $(PLATFORMINC) $(BOARDINC) $(TESTINC) $(VARIOUSINC) $(CHCPPINC) \
+		 $(HWDEF)/common
 
 #
 # Project, sources and paths
@@ -167,6 +180,8 @@ INCDIR = $(CHIBIOS)/os/license \
 ##############################################################################
 # Compiler settings
 #
+
+MCU  = cortex-m4
 
 #TRGT = arm-elf-
 TRGT = arm-none-eabi-
@@ -206,12 +221,7 @@ CPPWARN = -Wall -Wextra -Wundef
 #
 
 # List all user C define here, like -D_DEBUG=1
-UDEFS = $(ENV_UDEFS) $(FATFS_FLAGS) -DHAL_BOARD_NAME=\"$(HAL_BOARD_NAME)\"
-
-ifeq ($(ENABLE_ASSERTS),yes)
- UDEFS += -DHAL_CHIBIOS_ENABLE_ASSERTS
- ASXFLAGS += -DHAL_CHIBIOS_ENABLE_ASSERTS
-endif
+UDEFS = $(FATFS_FLAGS) -DHAL_BOARD_NAME=\"$(HAL_BOARD_NAME)\"
 
 # Define ASM defines here
 UADEFS =

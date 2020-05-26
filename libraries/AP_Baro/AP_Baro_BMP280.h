@@ -7,10 +7,7 @@
 #include "AP_Baro_Backend.h"
 
 #ifndef HAL_BARO_BMP280_I2C_ADDR
- #define HAL_BARO_BMP280_I2C_ADDR  (0x76)
-#endif
-#ifndef HAL_BARO_BMP280_I2C_ADDR2
- #define HAL_BARO_BMP280_I2C_ADDR2 (0x77)
+ #define HAL_BARO_BMP280_I2C_ADDR (0x76)
 #endif
 
 class AP_Baro_BMP280 : public AP_Baro_Backend
@@ -19,7 +16,7 @@ public:
     AP_Baro_BMP280(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev);
 
     /* AP_Baro public interface: */
-    void update() override;
+    void update();
 
     static AP_Baro_Backend *probe(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev);
 

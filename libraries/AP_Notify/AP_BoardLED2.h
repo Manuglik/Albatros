@@ -21,14 +21,17 @@
 
 #include "NotifyDevice.h"
 
+#define HIGH 1
+#define LOW 0
+
 class AP_BoardLED2: public NotifyDevice
 {
 public:
     // initialise the LED driver
-    bool init(void) override;
+    bool init(void);
 
     // should be called at 50Hz
-    void update(void) override;
+    void update(void);
 
 private:
     // counter incremented at 50Hz
